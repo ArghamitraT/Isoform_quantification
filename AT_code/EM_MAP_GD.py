@@ -1,8 +1,9 @@
 """
-This file has vanilla EM (MLE), can take long read and short read and merge them.
+This file will be edited for EM (MAP) and MSS.
+The math and detail explanation is on this file: https://drive.google.com/file/d/1LGLhGvn3KRAYunf995ZVAYA4w2lgRYfr/view?usp=sharing
 """
 
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # ~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~ #
@@ -15,35 +16,39 @@ import pandas as pd
 from tqdm import tqdm
 import hashlib
 import pickle
+from DirichletOptimizer import DirichletModel
+import numpy as np
 
 # Local imports
 from NanoCount.Read import Read
 from NanoCount.common import *
 
+
 # ~~~~~~~~~~~~~~MAIN FUNCTION~~~~~~~~~~~~~~ #
-class NanoCount:
+class Expec_Max:
 
     # ~~~~~~~~~~~~~~MAGIC METHODS~~~~~~~~~~~~~~ #
     def __init__(
-        self,
-        short_read_file: str,   #(AT)
-        long_read_file: str,    #(AT)
-        alignment_file: str="",
-        count_file: str = "",
-        filter_bam_out: str = "",
-        min_alignment_length: int = 50,
-        keep_suplementary: bool = False,
-        min_query_fraction_aligned: float = 0.5,
-        sec_scoring_threshold: float = 0.95,
-        sec_scoring_value: str = "alignment_score",
-        convergence_target: float = 0.005,
-        max_em_rounds: int = 100,
-        extra_tx_info: bool = False,
-        primary_score: str = "alignment_score",
-        max_dist_3_prime: int = 50,
-        max_dist_5_prime: int = -1,
-        verbose: bool = False,
-        quiet: bool = False,
+            self,
+            # short_read_file: str,  # (AT)
+            # long_read_file: str,  # (AT)
+            file_names = [],
+            alignment_file: str = "",
+            count_file: str = "",
+            filter_bam_out: str = "",
+            min_alignment_length: int = 50,
+            keep_suplementary: bool = False,
+            min_query_fraction_aligned: float = 0.5,
+            sec_scoring_threshold: float = 0.95,
+            sec_scoring_value: str = "alignment_score",
+            convergence_target: float = 0.005,
+            max_em_rounds: int = 100,
+            extra_tx_info: bool = False,
+            primary_score: str = "alignment_score",
+            max_dist_3_prime: int = 50,
+            max_dist_5_prime: int = -1,
+            verbose: bool = False,
+            quiet: bool = False,
     ):
         """
         Estimate abundance of transcripts using an EM
@@ -92,8 +97,9 @@ class NanoCount:
         log_dict(opt_summary_dict, self.log.debug, "Options summary")
 
         # Save args in self variables
-        self.short_read_file = short_read_file   # (AT)
-        self.long_read_file = long_read_file     # (AT)
+        # self.short_read_file = short_read_file  # (AT)
+        # self.long_read_file = long_read_file  # (AT)
+        self.file_names_list = file_names
         self.alignment_file = alignment_file
         self.count_file = count_file
         self.filter_bam_out = filter_bam_out
@@ -108,27 +114,51 @@ class NanoCount:
         self.keep_suplementary = keep_suplementary
         self.max_dist_5_prime = max_dist_5_prime
         self.max_dist_3_prime = max_dist_3_prime
+        self.all_read_dicts = {}
+        self.all_ref_len_dicts = {}
+        self.all_Yri = {}
+        self.all_theta = {}
+        self.all_Zri = {}
+        self.all_n = {}
 
         self.log.warning("Initialise Nanocount")
 
         # Collect all alignments grouped by read name
         self.log.info("Parse Bam file and filter low quality alignments")
 
+        # (AT) COMMENT
+        # with open('read_dict_long.pkl', 'rb') as file:
+        #     self.all_read_dicts['sample1'] = pickle.load(file)
+        # with open('ref_len_dict_long.pkl', 'rb') as file:
+        #     self.all_ref_len_dicts['sample1'] = pickle.load(file)
+
+        with open('read_nano_ambi.pickle', 'rb') as file:
+            self.all_read_dicts['sample1'] = pickle.load(file)
+        with open('ref_len_nano_ambi.pickle', 'rb') as file:
+            self.all_ref_len_dicts['sample1'] = pickle.load(file)
+
+        with open('read_dict_short.pkl', 'rb') as file:
+            self.all_read_dicts['sample2'] = pickle.load(file)
+        with open('ref_len_dict_short.pkl', 'rb') as file:
+            self.all_ref_len_dicts['sample2'] = pickle.load(file)
+
         # (AT) start
         # UNCOMMENT
-        # read_dict_short, ref_len_dict_short = self._parse_bam(read='short')
-        # read_dict_long, ref_len_dict_long = self._parse_bam(read='long')
+        """ EXPLANATION:
+        read_dict_short and read_dict_long -> "Binary Compatibility Matrix: Y_{ri}
+        ref_len_dict_short, ref_len_dict_LONG -> length of the isoforms """
+        # Loop over all file names provided and enumerate them to create Binary Compatibility Matrix
+        # for index, file_name in enumerate(self.file_names_list, start=1):
+        #
+        #     # Parse the BAM file
+        #     read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
+        #
+        #     # Store the dictionaries in the universal dictionary with a sample key
+        #     sample_key = f'sample{index}'
+        #     self.all_read_dicts[sample_key] = read_dict
+        #     self.all_ref_len_dicts[sample_key] = ref_len_dict
 
-        # COMMENT
-        with open('read_dict_short.pkl', 'rb') as file:
-            read_dict_short = pickle.load(file)
-        with open('read_dict_long.pkl', 'rb') as file:
-            read_dict_long = pickle.load(file)
-        with open('ref_len_dict_short.pkl', 'rb') as file:
-            ref_len_dict_short = pickle.load(file)
-        with open('ref_len_dict_long.pkl', 'rb') as file:
-            ref_len_dict_long = pickle.load(file)
-
+        """
         # Initialize merged_dict with an appropriate default factory
         self.read_dict = defaultdict()
         # Add all items from the first dictionary to self.read_dict
@@ -155,6 +185,7 @@ class NanoCount:
         for key, value in ref_len_dict_long.items():
             self.ref_len_dict[key] = value
         # (AT) end
+        """
 
         if self.filter_bam_out:
             self.log.info("Write selected alignments to BAM file")
@@ -162,9 +193,42 @@ class NanoCount:
 
         # Generate compatibility dict grouped by reads
         self.log.info("Generate initial read/transcript compatibility index")
-        compatibility_dict = self.get_compatibility_modified() #(AT)
 
-        # (AT) start edit
+        # COMMENT
+        # self.read_dict = defaultdict()
+        # self.read_dict = self.read_dict_long
+        # compatibility_dict = self._get_compatibility()
+
+        # parsing the data more and normalize it by the length of isoform
+        for sample_key in self.all_read_dicts:
+            self.all_Yri[sample_key] = self.get_compatibility_modified(sample_key)
+            self.all_theta[sample_key] = self.calculate_theta_0(self.all_Yri[sample_key])
+            self.all_Zri[sample_key] = self.calculate_Z_0(self.all_Yri[sample_key], self.all_theta[sample_key])
+            self.all_n[sample_key] = self.calculate_n_0(self.all_Zri[sample_key])
+
+        # theta_0_long = self.calculate_theta_0(Yri_long)
+        # Zri_0_long =  self.calculate_Z_0(Yri_long, theta_0_long)
+        # n_0_long = self.calculate_n_0(Zri_0_long)
+        # theta_0_short = self.calculate_theta_0(Yri_short)
+        # Zri_0_short = self.calculate_Z_0(Yri_short, theta_0_short)
+        # n_0_short = self.calculate_n_0(Zri_0_short)
+        #
+        # self.Yri_long = Yri_long
+        # self.theta_long = theta_0_long
+        # self.Zri_long = Zri_0_long
+        # self.n_long = n_0_long
+        #
+        # self.Yri_short = Yri_short
+        # self.theta_short = theta_0_short
+        # self.Zri_short = Zri_0_short
+        # self.n_short = n_0_short
+
+        # find out the reads mathced to more than 1 isoform
+        # more_than_one = {key: val for key, val in compatibility_dict_long.items() if len(val) > 1}
+
+        """
+        # (AT) start edit 
+        # Hasing, edit it later
         hashed_compatibility_dict = defaultdict(dict)
         # Iterate over the compatibility_dict to populate hashed_compatibility_dict
         for key, value in compatibility_dict.items():
@@ -180,8 +244,9 @@ class NanoCount:
                         hashed_compatibility_dict[hashed_key][subkey] = subvalue
             else:
                 hashed_compatibility_dict[hashed_key] = value
-        self.compatibility_dict =  hashed_compatibility_dict
+        self.compatibility_dict = hashed_compatibility_dict
         # (AT) end edit
+        """
 
         # EM loop to calculate abundance and update read-transcript compatibility
         self.log.warning("Start EM abundance estimate")
@@ -190,26 +255,50 @@ class NanoCount:
         self.convergence = 1
 
         with tqdm(
-            unit=" rounds",
-            unit_scale=True,
-            desc="\tProgress",
-            disable=(quiet or verbose),
+                unit=" rounds",
+                unit_scale=True,
+                desc="\tProgress",
+                disable=(quiet or verbose),
         ) as pbar:
+
+            """ (AT): EM and Gradient descent """
+
+            # Initialize the Dirichlet optimizer with the theta data
+            dirichlet_optimizer = DirichletModel(all_theta=self.all_theta)
+
+            # Call the method to initialize alpha
+            self.alpha, self.isoform_to_index = dirichlet_optimizer.initialize_alpha()
+
             # Iterate until convergence threshold or max EM round are reached
             while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds:
-                self.em_round += 1
-                # Calculate abundance from compatibility assignments
-                self.abundance_dict = self._calculate_abundance()
-                # Update compatibility assignments
-                self.compatibility_dict = self._update_compatibility()
+
+                # Gradient Descent
+                dirichlet_optimizer.update_alpha()
+
+                # EM
+
+
+
+                for sample_key in self.all_read_dicts:
+                    self.all_theta[sample_key] = self.update_theta(sample_key)
+                    self.all_Zri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
+                    self.all_n[sample_key] = self.calculate_n(self.all_Zri[sample_key])
+
+                # # Calculate abundance from compatibility assignments
+                # self.abundance_dict = self._calculate_abundance()
+                # # Update compatibility assignments
+                # self.compatibility_dict = self._update_compatibility()
                 # Update counter
                 pbar.update(1)
+                self.em_round += 1
                 self.log.debug("EM Round: {} / Convergence value: {}".format(self.em_round, self.convergence))
 
         self.log.info("Exit EM loop after {} rounds".format(self.em_round))
         self.log.info("Convergence value: {}".format(self.convergence))
         if not self.convergence <= self.convergence_target:
-            self.log.error("Convergence target ({}) could not be reached after {} rounds".format(self.convergence_target, self.max_em_rounds))
+            self.log.error(
+                "Convergence target ({}) could not be reached after {} rounds".format(self.convergence_target,
+                                                                                      self.max_em_rounds))
 
         # Write out results
         self.log.warning("Summarize data")
@@ -236,6 +325,104 @@ class NanoCount:
             self.log.info("Write file")
             self.count_df.to_csv(self.count_file, sep="\t")
 
+
+    """ ######### (AT) ######### functions """
+
+    def update_theta(self, sample_key):
+        """ Calculates the mode of the dirichlet """
+        """EXPLANATION:
+        {\hat{\theta}_i  = \frac{n_i + \alpha_i - 1}{\sum_{i=1}^{I} (\alpha_i + n_i)-I}}"""
+
+        sample_counts = self.all_n[sample_key]
+
+        # Prepare the arrays for n_i and alpha_i
+        n_i_sample = []
+        alpha_i_sample = []
+        isoform_order = []  # To preserve the order of isoforms
+
+        for isoform in sample_counts:
+            index = self.isoform_to_index[isoform]
+            n_i_sample.append(sample_counts[isoform])
+            alpha_i_sample.append(self.alpha[index])
+            isoform_order.append(isoform)
+
+        n_i_sample = np.array(n_i_sample)
+        alpha_i_sample = np.array(alpha_i_sample)
+
+        # Calculate theta_hat
+        numerator = n_i_sample + alpha_i_sample - 1
+        denominator = np.sum(numerator) - len(n_i_sample)
+        theta_hat_sample = numerator / denominator
+
+        # Store the results in a Counter with the same isoform order
+        theta_hat = Counter({isoform: theta_hat for isoform, theta_hat in zip(isoform_order, theta_hat_sample)})
+
+        return theta_hat
+
+    def calculate_n(self, compatibility_dict):
+        """
+        Calculate the abundance of the transcript set based on read-transcript compatibilities
+        """
+        """EXPLANATION:
+        \quad n_i = \sum_{r=1}^{R} z_{ri}"""
+
+        abundance_dict = Counter()
+        total = 0
+        convergence = 0
+
+        for read_name, comp in compatibility_dict.items():
+            for ref_name, score in comp.items():
+                abundance_dict[ref_name] += score
+                total += score
+        return abundance_dict
+
+
+    def calculate_Z(self, old_compatibility_dict, theta):
+        """
+        Update read-transcript compatibility based on transcript abundances
+        """
+        """EXPLANATION:
+        z_{ri}^{t=0} = 
+        \frac{y_{ri} \theta_i^{t=0}}{\sum_{i=1}^{I} y_{ri} \theta_i^{t=0}} \quad \forall r, i."""
+
+        Z_ri = defaultdict(dict)
+
+        # Loop through each read in Yri_long
+        for read, isoform_values in old_compatibility_dict.items():
+            # Calculate the denominator for the Z_ri formula
+            denominator = sum(Y_ri * theta[isoform] for isoform, Y_ri in isoform_values.items())
+
+            # Compute Z_ri for each isoform associated with the read
+            Z_ri[read] = {}
+            for isoform, Y_ri in isoform_values.items():
+                theta_i = theta[isoform]  # Get theta for isoform
+                Z_ri[read][isoform] = Y_ri * theta_i / denominator  # Calculate Z_ri according to the formula
+
+        return Z_ri
+
+
+    def calculate_theta_0(self, compatibility_dict):
+        """
+        Calculates the initial model parameter
+        """
+        """EXPLANATION:
+        p_{i} = \frac{1}{R} \sum_{r=1}^{R} y_{ri}
+        \theta_{i}^{t=0} = \frac{p_{i}}{\sum_{i=1}^{I} p_{i}}"""
+
+        abundance_dict = Counter()
+        total = 0
+        convergence = 0
+
+        for read_name, comp in compatibility_dict.items():
+            for ref_name, score in comp.items():
+                abundance_dict[ref_name] += score
+                total += score
+
+        for ref_name in abundance_dict.keys():
+            abundance_dict[ref_name] = abundance_dict[ref_name] / total
+
+        return abundance_dict
+
     # (AT)
     def hash_key(self, elements):
         # Create a stable hash of the sorted elements using a cryptographic hash function
@@ -249,26 +436,39 @@ class NanoCount:
         """
         return isinstance(obj, (list, tuple, set, dict, frozenset)) and not isinstance(obj, (str, bytes))
 
-    def get_compatibility_modified(self):
+
+    def get_compatibility_modified(self, sample_key):
         """"""
         compatibility_dict = defaultdict(dict)
+        read_dict = self.all_read_dicts[sample_key]
+        ref_len_dict = self.all_ref_len_dicts[sample_key]
 
-        for read_name, read in self.read_dict.items():
+        for read_name, read in read_dict.items():
             # Check if read is iterable and not a string; if not, make it a list
             if not self.is_iterable(read):
                 read = [read]  # Wrap non-iterable read in a list
 
+            total = 0
             for alignment in read:
                 for string in alignment.alignment_list:
-                    score = 1.0 / alignment.n_alignment
-                    compatibility_dict[read_name][string.rname] = \
-                        ((score * string.align_len)/self.ref_len_dict[string.rname])
-
+                    # score = 1.0 / alignment.n_alignment
+                    # score_by_length = (score / ref_len_dict[string.rname]-string.align_len+1)
+                    # total += score_by_length
+                    # compatibility_dict[read_name][string.rname] = score_by_length
+                    # compatibility_dict[read_name] = {key: value / total for key, value in compatibility_dict[read_name].items()}
+                    # compatibility_dict[read_name][string.rname] = 1
+                    """ EXPLANATION:
+                    if the read length is k and isoform length is n, there are n-k+1 positions the read can come from.
+                    so we need to multiply the score by (1/n-k+1). This is the way to incorporate isoform length """
+                    compatibility_dict[read_name][string.rname] = 1 / (ref_len_dict[string.rname]-string.align_len+1)
         return compatibility_dict
 
+    """ ######### (AT) ######### functions """
+
+
     # ~~~~~~~~~~~~~~PRIVATE METHODS~~~~~~~~~~~~~~ #
-    
-    def _parse_bam(self, read='short'):
+
+    def _parse_bam(self, file_name):
         """
         Parse Bam/Sam file, group alignments per reads, filter reads based on
         selection criteria and return a dict of valid read/alignments
@@ -279,10 +479,11 @@ class NanoCount:
         c = Counter()
 
         # (AT) which file to align (can be optimized)
-        if read == 'short':
-            aligned_read = self.short_read_file
-        else:
-            aligned_read = self.long_read_file
+        # if read == 'short':
+        #     aligned_read = self.short_read_file
+        # else:
+        #     aligned_read = self.long_read_file
+        aligned_read = file_name
 
         # (AT)
         # with pysam.AlignmentFile(self.alignment_file) as bam:
@@ -301,7 +502,8 @@ class NanoCount:
                     c["Discarded supplementary alignments"] += 1
                 elif self.min_alignment_length > 0 and alignment.query_alignment_length < self.min_alignment_length:
                     c["Discarded short alignments"] += 1
-                elif self.max_dist_3_prime >= 0 and alignment.reference_end <= ref_len_dict[alignment.reference_name] - self.max_dist_3_prime:
+                elif self.max_dist_3_prime >= 0 and alignment.reference_end <= ref_len_dict[
+                    alignment.reference_name] - self.max_dist_3_prime:
                     c["Discarded alignment with invalid 3 prime end"] += 1
                 elif self.max_dist_5_prime >= 0 and alignment.reference_start >= self.max_dist_5_prime:
                     c["Discarded alignment with invalid 5 prime end"] += 1
@@ -353,7 +555,8 @@ class NanoCount:
                 c["Reads without best alignment"] += 1
 
         if not "Valid secondary alignments" in c:
-            self.log.error("No valid secondary alignments found in bam file. Were the reads aligned with minimap `-p 0 -N 10` options ?")
+            self.log.error(
+                "No valid secondary alignments found in bam file. Were the reads aligned with minimap `-p 0 -N 10` options ?")
 
         # Write filtered reads counters
         log_dict(d=c, logger=self.log.info, header="Summary of reads filtered")
@@ -384,7 +587,6 @@ class NanoCount:
 
         log_dict(d=c, logger=self.log.info, header="Summary of alignments written to bam")
 
-    
     def _get_compatibility(self):
         """"""
         compatibility_dict = defaultdict(dict)
