@@ -1,14 +1,10 @@
 """
-This file will be edited for EM (MAP) and MSS.
+This file implements EM, MAP and calls GD.
 The math and detail explanation is on this file: https://drive.google.com/file/d/1LGLhGvn3KRAYunf995ZVAYA4w2lgRYfr/view?usp=sharing
 """
 
-# !/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # ~~~~~~~~~~~~~~IMPORTS~~~~~~~~~~~~~~ #
-# Standard library imports
-from collections import *
 
 # Third party imports
 import pysam
@@ -18,6 +14,7 @@ import hashlib
 import pickle
 from DirichletOptimizer import DirichletModel
 import numpy as np
+import generate_images as gen_img
 
 # Local imports
 from NanoCount.Read import Read
@@ -30,8 +27,6 @@ class Expec_Max:
     # ~~~~~~~~~~~~~~MAGIC METHODS~~~~~~~~~~~~~~ #
     def __init__(
             self,
-            # short_read_file: str,  # (AT)
-            # long_read_file: str,  # (AT)
             file_names = [],
             alignment_file: str = "",
             count_file: str = "",
@@ -51,7 +46,9 @@ class Expec_Max:
             quiet: bool = False,
     ):
         """
-        Estimate abundance of transcripts using an EM
+        NOTE: File file does not use any hashing and runs EM on both ambiguous and unambiguous reads. This can be improved in future
+        EXPLANATION:
+        Estimate abundance of transcripts using an EM and MAP
         * alignment_file
             Sorted and indexed BAM or SAM file containing aligned ONT dRNA-Seq reads including secondary alignments
         * count_file
@@ -97,8 +94,6 @@ class Expec_Max:
         log_dict(opt_summary_dict, self.log.debug, "Options summary")
 
         # Save args in self variables
-        # self.short_read_file = short_read_file  # (AT)
-        # self.long_read_file = long_read_file  # (AT)
         self.file_names_list = file_names
         self.alignment_file = alignment_file
         self.count_file = count_file
@@ -126,66 +121,29 @@ class Expec_Max:
         # Collect all alignments grouped by read name
         self.log.info("Parse Bam file and filter low quality alignments")
 
-        # (AT) COMMENT
-        # with open('read_dict_long.pkl', 'rb') as file:
-        #     self.all_read_dicts['sample1'] = pickle.load(file)
-        # with open('ref_len_dict_long.pkl', 'rb') as file:
-        #     self.all_ref_len_dicts['sample1'] = pickle.load(file)
-
-        with open('read_nano_ambi.pickle', 'rb') as file:
-            self.all_read_dicts['sample1'] = pickle.load(file)
-        with open('ref_len_nano_ambi.pickle', 'rb') as file:
-            self.all_ref_len_dicts['sample1'] = pickle.load(file)
-
-        with open('read_dict_short.pkl', 'rb') as file:
-            self.all_read_dicts['sample2'] = pickle.load(file)
-        with open('ref_len_dict_short.pkl', 'rb') as file:
-            self.all_ref_len_dicts['sample2'] = pickle.load(file)
-
-        # (AT) start
-        # UNCOMMENT
-        """ EXPLANATION:
-        read_dict_short and read_dict_long -> "Binary Compatibility Matrix: Y_{ri}
-        ref_len_dict_short, ref_len_dict_LONG -> length of the isoforms """
-        # Loop over all file names provided and enumerate them to create Binary Compatibility Matrix
+        #  (AT) UNCOMMENT
+        # Loop over all file names provided and parses the reads with
         # for index, file_name in enumerate(self.file_names_list, start=1):
-        #
         #     # Parse the BAM file
         #     read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
-        #
         #     # Store the dictionaries in the universal dictionary with a sample key
         #     sample_key = f'sample{index}'
         #     self.all_read_dicts[sample_key] = read_dict
         #     self.all_ref_len_dicts[sample_key] = ref_len_dict
-
-        """
-        # Initialize merged_dict with an appropriate default factory
-        self.read_dict = defaultdict()
-        # Add all items from the first dictionary to self.read_dict
-        for key, value in read_dict_long.items():
-            self.read_dict[key] = value
-
-        # Merge with items from the second dictionary, combining values if key exists
-        for key, value in read_dict_short.items():
-            if key in self.read_dict:
-                # Combine values; this could be a list, a sum, etc., depending on your needs; Here, we're creating a list of values
-                if not isinstance(self.read_dict[key], list):
-                    self.read_dict[key] = [self.read_dict[key]]
-                self.read_dict[key].append(value)
-            else:
-                # If the key is not in self.read_dict, simply add it
-                self.read_dict[key] = value
-
-        # merging the transcript length for both long and short read
-        self.ref_len_dict = OrderedDict()
-        self.ref_len_dict = {k: v for k, v in ref_len_dict_long.items() if k not in ref_len_dict_short}
-        self.ref_len_dict.update(ref_len_dict_short)
-
-        # Add all items from the first dictionary to self.read_dict
-        for key, value in ref_len_dict_long.items():
-            self.ref_len_dict[key] = value
-        # (AT) end
-        """
+        # (AT) COMMENT
+        # because parsing takes a bit of time, saved couple of file to develop working code
+        # with open('read_dict_long.pkl', 'rb') as file:
+        #     self.all_read_dicts['sample1'] = pickle.load(file)
+        # with open('ref_len_dict_long.pkl', 'rb') as file:
+        #     self.all_ref_len_dicts['sample1'] = pickle.load(file)
+        with open('read_nano_ambi.pickle', 'rb') as file:
+            self.all_read_dicts['sample1'] = pickle.load(file)
+        with open('ref_len_nano_ambi.pickle', 'rb') as file:
+            self.all_ref_len_dicts['sample1'] = pickle.load(file)
+        with open('read_dict_short.pkl', 'rb') as file:
+            self.all_read_dicts['sample2'] = pickle.load(file)
+        with open('ref_len_dict_short.pkl', 'rb') as file:
+            self.all_ref_len_dicts['sample2'] = pickle.load(file)
 
         if self.filter_bam_out:
             self.log.info("Write selected alignments to BAM file")
@@ -194,65 +152,32 @@ class Expec_Max:
         # Generate compatibility dict grouped by reads
         self.log.info("Generate initial read/transcript compatibility index")
 
-        # COMMENT
-        # self.read_dict = defaultdict()
-        # self.read_dict = self.read_dict_long
-        # compatibility_dict = self._get_compatibility()
-
-        # parsing the data more and normalize it by the length of isoform
+        """ EXPLANATION
+            * Yri --> Binary Compatibility Matrix
+            * theta --> isoform percentage/abundance/quantity
+            * Zri --> Expectation of A (true asignment) matrix
+            * n --> # of reads for each isoform
+        """
+        # All the initial calculation
         for sample_key in self.all_read_dicts:
             self.all_Yri[sample_key] = self.get_compatibility_modified(sample_key)
             self.all_theta[sample_key] = self.calculate_theta_0(self.all_Yri[sample_key])
-            self.all_Zri[sample_key] = self.calculate_Z_0(self.all_Yri[sample_key], self.all_theta[sample_key])
-            self.all_n[sample_key] = self.calculate_n_0(self.all_Zri[sample_key])
-
-        # theta_0_long = self.calculate_theta_0(Yri_long)
-        # Zri_0_long =  self.calculate_Z_0(Yri_long, theta_0_long)
-        # n_0_long = self.calculate_n_0(Zri_0_long)
-        # theta_0_short = self.calculate_theta_0(Yri_short)
-        # Zri_0_short = self.calculate_Z_0(Yri_short, theta_0_short)
-        # n_0_short = self.calculate_n_0(Zri_0_short)
-        #
-        # self.Yri_long = Yri_long
-        # self.theta_long = theta_0_long
-        # self.Zri_long = Zri_0_long
-        # self.n_long = n_0_long
-        #
-        # self.Yri_short = Yri_short
-        # self.theta_short = theta_0_short
-        # self.Zri_short = Zri_0_short
-        # self.n_short = n_0_short
+            self.all_Zri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
+            self.all_n[sample_key] = self.calculate_n(self.all_Zri[sample_key])
 
         # find out the reads mathced to more than 1 isoform
         # more_than_one = {key: val for key, val in compatibility_dict_long.items() if len(val) > 1}
-
-        """
-        # (AT) start edit 
-        # Hasing, edit it later
-        hashed_compatibility_dict = defaultdict(dict)
-        # Iterate over the compatibility_dict to populate hashed_compatibility_dict
-        for key, value in compatibility_dict.items():
-            # Use the values (which are dictionaries) to create a hash key
-            value_tuple = tuple(value.items())  # This creates a hashable tuple of the dictionary items
-            hashed_key = self.hash_key(value_tuple)
-
-            # Merge dictionaries with the same hash, or add them if not present
-            if hashed_key in hashed_compatibility_dict:
-                # Update the existing dictionary with the new values, if they don't already exist
-                for subkey, subvalue in value.items():
-                    if subkey not in hashed_compatibility_dict[hashed_key]:
-                        hashed_compatibility_dict[hashed_key][subkey] = subvalue
-            else:
-                hashed_compatibility_dict[hashed_key] = value
-        self.compatibility_dict = hashed_compatibility_dict
-        # (AT) end edit
-        """
 
         # EM loop to calculate abundance and update read-transcript compatibility
         self.log.warning("Start EM abundance estimate")
 
         self.em_round = 0
         self.convergence = 1
+
+        # storing the values for each iteration for downstream analysis and plotting
+        theta_history = {}  # Dictionary to store theta values for each sample at each iteration
+        alpha_history = []  # List to store alpha values at each iteration
+        convergence_history = []  # List to store convergence values at each iteration
 
         with tqdm(
                 unit=" rounds",
@@ -261,36 +186,37 @@ class Expec_Max:
                 disable=(quiet or verbose),
         ) as pbar:
 
-            """ (AT): EM and Gradient descent """
-
             # Initialize the Dirichlet optimizer with the theta data
             dirichlet_optimizer = DirichletModel(all_theta=self.all_theta)
+            # Call the method to return alpha and isoform_index to access appropriate alpha to each isoform
+            self.alpha, self.isoform_to_index = dirichlet_optimizer.reutrn_alpha()
 
-            # Call the method to initialize alpha
-            self.alpha, self.isoform_to_index = dirichlet_optimizer.initialize_alpha()
+            # Initialize storage for thetas, alphas, and convergence values
+            for sample_key in self.all_read_dicts:
+                theta_history[sample_key] = []
+                theta_history[sample_key].append(self.all_theta[sample_key])
+            alpha_history.append(np.mean(self.alpha))
+            convergence_history.append(self.convergence)
 
+            """ EM and Gradient descent """
             # Iterate until convergence threshold or max EM round are reached
             while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds:
+                self.convergence = 0
+                self.em_round += 1
 
                 # Gradient Descent
                 dirichlet_optimizer.update_alpha()
-
                 # EM
-
-
-
                 for sample_key in self.all_read_dicts:
-                    self.all_theta[sample_key] = self.update_theta(sample_key)
+                    self.all_theta[sample_key], convergence = self.update_theta(sample_key)
                     self.all_Zri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
                     self.all_n[sample_key] = self.calculate_n(self.all_Zri[sample_key])
-
-                # # Calculate abundance from compatibility assignments
-                # self.abundance_dict = self._calculate_abundance()
-                # # Update compatibility assignments
-                # self.compatibility_dict = self._update_compatibility()
-                # Update counter
+                    self.convergence +=convergence
+                    theta_history[sample_key].append(self.all_theta[sample_key]) # store the values for downstream
+                # store the values for downstream
+                alpha_history.append(np.mean(self.alpha))
+                convergence_history.append(self.convergence)
                 pbar.update(1)
-                self.em_round += 1
                 self.log.debug("EM Round: {} / Convergence value: {}".format(self.em_round, self.convergence))
 
         self.log.info("Exit EM loop after {} rounds".format(self.em_round))
@@ -299,6 +225,8 @@ class Expec_Max:
             self.log.error(
                 "Convergence target ({}) could not be reached after {} rounds".format(self.convergence_target,
                                                                                       self.max_em_rounds))
+        # Plot some figures
+        gen_img.plot_EM_results(alpha_history, convergence_history, theta_history)
 
         # Write out results
         self.log.warning("Summarize data")
@@ -326,14 +254,18 @@ class Expec_Max:
             self.count_df.to_csv(self.count_file, sep="\t")
 
 
-    """ ######### (AT) ######### functions """
+     # ~~~~~~~~~~~~~~NEW FUNCTIONS (AT)~~~~~~~~~~~~~~ #
 
     def update_theta(self, sample_key):
         """ Calculates the mode of the dirichlet """
-        """EXPLANATION:
-        {\hat{\theta}_i  = \frac{n_i + \alpha_i - 1}{\sum_{i=1}^{I} (\alpha_i + n_i)-I}}"""
+
+        """ EXPLANATION:
+            * Eqn 5 --> {\hat{\theta}_i  = \frac{n_i + \alpha_i - 1}
+            {\sum_{i=1}^{I} (\alpha_i + n_i)-I}}"""
 
         sample_counts = self.all_n[sample_key]
+        convergence = 0
+        theta_old = self.all_theta[sample_key]
 
         # Prepare the arrays for n_i and alpha_i
         n_i_sample = []
@@ -357,19 +289,23 @@ class Expec_Max:
         # Store the results in a Counter with the same isoform order
         theta_hat = Counter({isoform: theta_hat for isoform, theta_hat in zip(isoform_order, theta_hat_sample)})
 
-        return theta_hat
+        if self.em_round > 0:
+            for ref_name in theta_old.keys():
+                convergence += abs(theta_old[ref_name] - theta_hat[ref_name])
+
+        return theta_hat, convergence
 
     def calculate_n(self, compatibility_dict):
         """
-        Calculate the abundance of the transcript set based on read-transcript compatibilities
+        Sums up the total assignment for isoform I
         """
-        """EXPLANATION:
-        \quad n_i = \sum_{r=1}^{R} z_{ri}"""
+        """ EXPLANATION:
+            * Eqn 4 -->  n_i = \sum_{r=1}^{R} z_{ri}"""
 
         abundance_dict = Counter()
         total = 0
-        convergence = 0
 
+        # sums over all the reads and calculates the total abundance of  each isoform
         for read_name, comp in compatibility_dict.items():
             for ref_name, score in comp.items():
                 abundance_dict[ref_name] += score
@@ -379,39 +315,36 @@ class Expec_Max:
 
     def calculate_Z(self, old_compatibility_dict, theta):
         """
-        Update read-transcript compatibility based on transcript abundances
+        The EM assignment: Update read-transcript compatibility based on transcript abundances (expectation of A or the ture assignmen)
         """
-        """EXPLANATION:
-        z_{ri}^{t=0} = 
-        \frac{y_{ri} \theta_i^{t=0}}{\sum_{i=1}^{I} y_{ri} \theta_i^{t=0}} \quad \forall r, i."""
+        """ EXPLANATION:
+            * Eqn 3 --> z_{ri}^{t=0} = {y_{ri} \theta_i^{t=0}} /
+            {\sum_{i=1}^{I} y_{ri} \theta_i^{t=0}} """
 
         Z_ri = defaultdict(dict)
 
-        # Loop through each read in Yri_long
+        # Loop through each read in Yri
         for read, isoform_values in old_compatibility_dict.items():
             # Calculate the denominator for the Z_ri formula
             denominator = sum(Y_ri * theta[isoform] for isoform, Y_ri in isoform_values.items())
-
             # Compute Z_ri for each isoform associated with the read
             Z_ri[read] = {}
             for isoform, Y_ri in isoform_values.items():
                 theta_i = theta[isoform]  # Get theta for isoform
                 Z_ri[read][isoform] = Y_ri * theta_i / denominator  # Calculate Z_ri according to the formula
-
         return Z_ri
 
 
     def calculate_theta_0(self, compatibility_dict):
         """
-        Calculates the initial model parameter
+        Calculates the initial model parameter, or isoform percentage
         """
-        """EXPLANATION:
-        p_{i} = \frac{1}{R} \sum_{r=1}^{R} y_{ri}
-        \theta_{i}^{t=0} = \frac{p_{i}}{\sum_{i=1}^{I} p_{i}}"""
+        """ EXPLANATION:
+            * Eqn 1 --> p_{i} = \frac{1}{R} \sum_{r=1}^{R} y_{ri}
+            * Eqn 2 --> \theta_{i}^{t=0} = \frac{p_{i}}{\sum_{i=1}^{I} p_{i}} """
 
         abundance_dict = Counter()
         total = 0
-        convergence = 0
 
         for read_name, comp in compatibility_dict.items():
             for ref_name, score in comp.items():
@@ -438,7 +371,13 @@ class Expec_Max:
 
 
     def get_compatibility_modified(self, sample_key):
-        """"""
+        """
+         For every read gives the compatible isoforms and normalize them by N-K+1
+        """
+
+        """ EXPLANATION:
+        * read_dict -> "Binary Compatibility Matrix: Y_{ri}
+        * ref_len_dict -> length of the isoforms """
         compatibility_dict = defaultdict(dict)
         read_dict = self.all_read_dicts[sample_key]
         ref_len_dict = self.all_ref_len_dicts[sample_key]
@@ -448,22 +387,14 @@ class Expec_Max:
             if not self.is_iterable(read):
                 read = [read]  # Wrap non-iterable read in a list
 
-            total = 0
+            """ EXPLANATION:
+            * if the read length is k and isoform length is n, there are n-k+1 positions the read can come from.
+            so we need to multiply the score by (1/n-k+1). This is the way to incorporate isoform length """
             for alignment in read:
                 for string in alignment.alignment_list:
-                    # score = 1.0 / alignment.n_alignment
-                    # score_by_length = (score / ref_len_dict[string.rname]-string.align_len+1)
-                    # total += score_by_length
-                    # compatibility_dict[read_name][string.rname] = score_by_length
-                    # compatibility_dict[read_name] = {key: value / total for key, value in compatibility_dict[read_name].items()}
-                    # compatibility_dict[read_name][string.rname] = 1
-                    """ EXPLANATION:
-                    if the read length is k and isoform length is n, there are n-k+1 positions the read can come from.
-                    so we need to multiply the score by (1/n-k+1). This is the way to incorporate isoform length """
                     compatibility_dict[read_name][string.rname] = 1 / (ref_len_dict[string.rname]-string.align_len+1)
         return compatibility_dict
 
-    """ ######### (AT) ######### functions """
 
 
     # ~~~~~~~~~~~~~~PRIVATE METHODS~~~~~~~~~~~~~~ #
@@ -478,15 +409,8 @@ class Expec_Max:
         ref_len_dict = OrderedDict()
         c = Counter()
 
-        # (AT) which file to align (can be optimized)
-        # if read == 'short':
-        #     aligned_read = self.short_read_file
-        # else:
-        #     aligned_read = self.long_read_file
         aligned_read = file_name
 
-        # (AT)
-        # with pysam.AlignmentFile(self.alignment_file) as bam:
         with pysam.AlignmentFile(aligned_read) as bam:
 
             # Collect reference lengths in dict
