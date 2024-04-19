@@ -15,11 +15,17 @@ import pickle
 from DirichletOptimizer import DirichletModel
 import numpy as np
 import generate_images as gen_img
+import time
+import json
 
 # Local imports
 from NanoCount.Read import Read
 from NanoCount.common import *
 
+"""
+MODIFICATIONS FROM THE LAST PUSH:
+* merging all theta: now all files will have same number of theta
+"""
 
 # ~~~~~~~~~~~~~~MAIN FUNCTION~~~~~~~~~~~~~~ #
 class Expec_Max:
@@ -36,8 +42,8 @@ class Expec_Max:
             min_query_fraction_aligned: float = 0.5,
             sec_scoring_threshold: float = 0.95,
             sec_scoring_value: str = "alignment_score",
-            convergence_target: float = 0.005,
-            max_em_rounds: int = 100,
+            convergence_target: float = 0.0025,
+            max_em_rounds: int = 10,
             extra_tx_info: bool = False,
             primary_score: str = "alignment_score",
             max_dist_3_prime: int = 50,
@@ -123,27 +129,42 @@ class Expec_Max:
 
         #  (AT) UNCOMMENT
         # Loop over all file names provided and parses the reads with
-        # for index, file_name in enumerate(self.file_names_list, start=1):
-        #     # Parse the BAM file
-        #     read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
-        #     # Store the dictionaries in the universal dictionary with a sample key
-        #     sample_key = f'sample{index}'
-        #     self.all_read_dicts[sample_key] = read_dict
-        #     self.all_ref_len_dicts[sample_key] = ref_len_dict
+
+        for index, file_name in enumerate(self.file_names_list, start=1):
+            start = time.time()
+            # Parse the BAM file
+            read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
+            # Store the dictionaries in the universal dictionary with a sample key
+            sample_key = f'sample{index}'
+            self.all_read_dicts[sample_key] = read_dict
+            self.all_ref_len_dicts[sample_key] = ref_len_dict
+            end = time.time()
+            print(f"Time taken to run the code was {end - start} seconds")
+
         # (AT) COMMENT
         # because parsing takes a bit of time, saved couple of file to develop working code
+        with open('Illumina_Day0_rep1_read_dict.pkl', 'rb') as file:
+            self.all_read_dicts['sample1'] = pickle.load(file)
+        with open('Illumina_Day0_rep1_ref_len_dict.pkl', 'rb') as file:
+            self.all_ref_len_dicts['sample1'] = pickle.load(file)
+        with open('Illumina_Day0_rep2_read_dict.pkl', 'rb') as file:
+            self.all_read_dicts['sample2'] = pickle.load(file)
+        with open('Illumina_Day0_rep2_ref_len_dict.pkl', 'rb') as file:
+            self.all_ref_len_dicts['sample2'] = pickle.load(file)
+
+
         # with open('read_dict_long.pkl', 'rb') as file:
         #     self.all_read_dicts['sample1'] = pickle.load(file)
         # with open('ref_len_dict_long.pkl', 'rb') as file:
         #     self.all_ref_len_dicts['sample1'] = pickle.load(file)
-        with open('read_nano_ambi.pickle', 'rb') as file:
-            self.all_read_dicts['sample1'] = pickle.load(file)
-        with open('ref_len_nano_ambi.pickle', 'rb') as file:
-            self.all_ref_len_dicts['sample1'] = pickle.load(file)
-        with open('read_dict_short.pkl', 'rb') as file:
-            self.all_read_dicts['sample2'] = pickle.load(file)
-        with open('ref_len_dict_short.pkl', 'rb') as file:
-            self.all_ref_len_dicts['sample2'] = pickle.load(file)
+        # with open('read_nano_ambi.pickle', 'rb') as file:
+        #     self.all_read_dicts['sample1'] = pickle.load(file)
+        # with open('ref_len_nano_ambi.pickle', 'rb') as file:
+        #     self.all_ref_len_dicts['sample1'] = pickle.load(file)
+        # with open('read_dict_short.pkl', 'rb') as file:
+        #     self.all_read_dicts['sample2'] = pickle.load(file)
+        # with open('ref_len_dict_short.pkl', 'rb') as file:
+        #     self.all_ref_len_dicts['sample2'] = pickle.load(file)
 
         if self.filter_bam_out:
             self.log.info("Write selected alignments to BAM file")
@@ -165,6 +186,11 @@ class Expec_Max:
             self.all_Zri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
             self.all_n[sample_key] = self.calculate_n(self.all_Zri[sample_key])
 
+        # merging all theta
+        # all_theta_keys = self.get_all_keys(self.all_theta)
+        # self.update_dicts_with_all_keys(self.all_theta, all_theta_keys)
+        # self.update_dicts_with_all_keys(self.all_n, all_theta_keys)
+
         # find out the reads mathced to more than 1 isoform
         # more_than_one = {key: val for key, val in compatibility_dict_long.items() if len(val) > 1}
 
@@ -179,6 +205,7 @@ class Expec_Max:
         alpha_history = []  # List to store alpha values at each iteration
         convergence_history = []  # List to store convergence values at each iteration
 
+        start = time.time()
         with tqdm(
                 unit=" rounds",
                 unit_scale=True,
@@ -189,7 +216,7 @@ class Expec_Max:
             # Initialize the Dirichlet optimizer with the theta data
             dirichlet_optimizer = DirichletModel(all_theta=self.all_theta)
             # Call the method to return alpha and isoform_index to access appropriate alpha to each isoform
-            self.alpha, self.isoform_to_index = dirichlet_optimizer.reutrn_alpha()
+            self.alpha, self.isoform_to_index = dirichlet_optimizer.return_alpha()
 
             # Initialize storage for thetas, alphas, and convergence values
             for sample_key in self.all_read_dicts:
@@ -198,27 +225,38 @@ class Expec_Max:
             alpha_history.append(np.mean(self.alpha))
             convergence_history.append(self.convergence)
 
+
             """ EM and Gradient descent """
             # Iterate until convergence threshold or max EM round are reached
             while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds:
+            #while self.convergence > 0.005 and self.em_round < 100:
+
                 self.convergence = 0
                 self.em_round += 1
 
                 # Gradient Descent
                 dirichlet_optimizer.update_alpha()
                 # EM
+                sample_num = 0
                 for sample_key in self.all_read_dicts:
                     self.all_theta[sample_key], convergence = self.update_theta(sample_key)
                     self.all_Zri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
                     self.all_n[sample_key] = self.calculate_n(self.all_Zri[sample_key])
                     self.convergence +=convergence
                     theta_history[sample_key].append(self.all_theta[sample_key]) # store the values for downstream
+                    sample_num +=1
+
+                # self.update_dicts_with_all_keys(self.all_n, all_theta_keys)
                 # store the values for downstream
                 alpha_history.append(np.mean(self.alpha))
+                self.convergence = self.convergence/sample_num
                 convergence_history.append(self.convergence)
+                print('Convergence: ', self.convergence)
                 pbar.update(1)
                 self.log.debug("EM Round: {} / Convergence value: {}".format(self.em_round, self.convergence))
 
+        end = time.time()
+        print(f"Time taken to run the code was {end - start} seconds")
         self.log.info("Exit EM loop after {} rounds".format(self.em_round))
         self.log.info("Convergence value: {}".format(self.convergence))
         if not self.convergence <= self.convergence_target:
@@ -226,35 +264,61 @@ class Expec_Max:
                 "Convergence target ({}) could not be reached after {} rounds".format(self.convergence_target,
                                                                                       self.max_em_rounds))
         # Plot some figures
-        gen_img.plot_EM_results(alpha_history, convergence_history, theta_history)
+        # gen_img.plot_EM_results(alpha_history, convergence_history, theta_history)
 
         # Write out results
         self.log.warning("Summarize data")
 
-        self.log.info("Convert results to dataframe")
-        self.count_df = pd.DataFrame(self.abundance_dict.most_common(), columns=["transcript_name", "raw"])
-        self.count_df.set_index("transcript_name", inplace=True, drop=True)
+        # Assuming 'all_theta' is a dictionary of Counters, each Counter corresponding to a sample
+        # and 'read_dict' is a dictionary of reads for each sample.
+        indx = 0
+        for sample, theta in self.all_theta.items():
+            self.log.info(f"Processing {sample}")
+            count_df = pd.DataFrame(theta.most_common(), columns=["transcript_name", "raw"])
+            count_df.set_index("transcript_name", inplace=True, drop=True)
 
-        self.log.info("Compute estimated counts and TPM")
-        self.count_df["est_count"] = self.count_df["raw"] * len(self.read_dict)
-        self.count_df["tpm"] = self.count_df["raw"] * 1000000
+            self.log.info("Compute estimated counts and TPM")
+            # Adjusted to use the length of read_dict for the current sample
+            count_df["est_count"] = count_df["raw"] * len(self.all_read_dicts[sample])
+            count_df["tpm"] = count_df["raw"] * 1000000 / sum(theta.values())
 
-        # Add extra transcript info is required
-        if self.extra_tx_info:
-            tx_df = self._get_tx_df()
-            self.count_df = pd.merge(self.count_df, tx_df, left_index=True, right_index=True, how="outer")
+            # Add extra transcript info if required
+            if self.extra_tx_info:
+                tx_df = self._get_tx_df()
+                count_df = pd.merge(count_df, tx_df, left_index=True, right_index=True, how="outer")
 
-        # Cleanup and sort
-        self.count_df.sort_values(by="raw", ascending=False, inplace=True)
-        self.count_df.fillna(value=0, inplace=True)
-        self.count_df.index.name = "transcript_name"
+            # Cleanup and sort
+            count_df.sort_values(by="raw", ascending=False, inplace=True)
+            count_df.fillna(value=0, inplace=True)
+            count_df.index.name = "transcript_name"
 
-        if self.count_file:
-            self.log.info("Write file")
-            self.count_df.to_csv(self.count_file, sep="\t")
+            # get Spearman's correlation
+            # gen_img.spearman_corr(count_df, sample)
+
+            # The output file could be named according to the sample
+            file_name = self.file_names_list[indx].split('/')[-1].split('.')[0]
+            count_file = f"{self.count_file}_{sample}_{file_name}.tsv" if self.count_file else None
+            if count_file:
+                self.log.info(f"Write file for {sample}")
+                count_df.to_csv(count_file, sep="\t")
+            indx+=1
 
 
      # ~~~~~~~~~~~~~~NEW FUNCTIONS (AT)~~~~~~~~~~~~~~ #
+
+
+    # Find the union of all keys across all samples for a given attribute
+    def get_all_keys(self,attribute_dict):
+        all_keys = set()
+        for nested_dict in attribute_dict.values():
+            all_keys.update(nested_dict.keys())
+        return all_keys
+
+    # Update each sample's dictionary with all keys, setting default value to 0 for new keys
+    def update_dicts_with_all_keys(self, attribute_dict, all_keys):
+        for sample_key, nested_dict in attribute_dict.items():
+            for key in all_keys:
+                nested_dict.setdefault(key, 0)
 
     def update_theta(self, sample_key):
         """ Calculates the mode of the dirichlet """
@@ -282,9 +346,17 @@ class Expec_Max:
         alpha_i_sample = np.array(alpha_i_sample)
 
         # Calculate theta_hat
-        numerator = n_i_sample + alpha_i_sample - 1
-        denominator = np.sum(numerator) - len(n_i_sample)
+        sum_ni_alphai = n_i_sample + alpha_i_sample
+        # mode
+        numerator = n_i_sample + alpha_i_sample-1
+        denominator = np.sum(sum_ni_alphai) - len(n_i_sample)
+        # mean
+        # numerator = n_i_sample + alpha_i_sample
+        # denominator = np.sum(sum_ni_alphai)
+
         theta_hat_sample = numerator / denominator
+        theta_hat_sample[theta_hat_sample < 0] = 0
+        print('\ntheta sum: ',sum(theta_hat_sample))
 
         # Store the results in a Counter with the same isoform order
         theta_hat = Counter({isoform: theta_hat for isoform, theta_hat in zip(isoform_order, theta_hat_sample)})
@@ -392,7 +464,17 @@ class Expec_Max:
             so we need to multiply the score by (1/n-k+1). This is the way to incorporate isoform length """
             for alignment in read:
                 for string in alignment.alignment_list:
-                    compatibility_dict[read_name][string.rname] = 1 / (ref_len_dict[string.rname]-string.align_len+1)
+                    # (AT) just modified temporarily for PacBio data
+                    # try:
+                    #     compatibility_dict[read_name][string.rname] = 1 / (ref_len_dict[string.rname]-string.align_len+1)
+                    # except:
+                    #     compatibility_dict[read_name][string.rname] = 1
+                    #     print('problem')
+                    try:
+                        compatibility_dict[read_name][string.rname.split('|')[0]] = 1 / (ref_len_dict[string.rname]-string.align_len+1)
+                    except:
+                        compatibility_dict[read_name][string.rname.split('|')[0]] = 1
+                        print('problem')
         return compatibility_dict
 
 
@@ -522,8 +604,9 @@ class Expec_Max:
 
             for alignment in read:
                 for string in alignment.alignment_list:
-                    compatibility_dict[read_name][string.rname] = \
-                        score = 1.0 / alignment.n_alignment
+                    compatibility_dict[read_name][string.rname.split('|')[0]] = score = 1.0 / alignment.n_alignment
+                    # compatibility_dict[read_name][string.rname] = \
+                    #     score = 1.0 / alignment.n_alignment
 
         return compatibility_dict
 

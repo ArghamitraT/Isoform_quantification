@@ -4,7 +4,6 @@ from collections import Counter
 import torch_optimizer as optim
 
 
-
 class DirichletModel:
     def __init__(self, all_theta):
         self.all_theta = all_theta
@@ -16,7 +15,7 @@ class DirichletModel:
         self.alpha = torch.ones(len(self.isoforms), requires_grad=True)
         self.optimizer = torch.optim.Adam([self.alpha], lr=0.01)  # lr is the learning rate
 
-    def reutrn_alpha(self):
+    def return_alpha(self):
         """
         returns initialized alpha and isoform index
         """
@@ -63,9 +62,16 @@ class DirichletModel:
         # Compute the log likelihood
         log_B_alpha = torch.sum(torch.lgamma(self.alpha)) - torch.lgamma(torch.sum(self.alpha))
         log_likelihood = -log_B_alpha # we need log(1/B(alpha))
+
+        """DAVID: try to avoid the for loop"""
         for f in range(theta_tensor.size(0)):  # Loop over each sample
             for i, alpha_i in enumerate(self.alpha):  # Loop over each alpha_i
-                log_likelihood += (alpha_i - 1) * torch.log(theta_tensor[f, i])
+                temp_val = (alpha_i - 1) * torch.log(theta_tensor[f, i]+1e-10)
+                if torch.isnan(temp_val).any():
+                    print('nan')
+                    log_likelihood +=(alpha_i - 1) * torch.log(torch.zeros(1).squeeze(0)+1e-10)
+                else:
+                    log_likelihood += temp_val
         return log_likelihood
 
     def _counters_to_tensor(self, all_theta):
