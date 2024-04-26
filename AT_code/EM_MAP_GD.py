@@ -22,6 +22,23 @@ import json
 from NanoCount.Read import Read
 from NanoCount.common import *
 
+# import types
+#
+# # Assuming Read is a class or function you have defined somewhere
+# def Read():
+#     pass
+#
+# # Manually adding Read to __main__
+# import sys
+# sys.modules['__main__'].Read = Read
+#
+# with open('pkl_files/PacBio_Day0_rep1.pkl', 'rb') as file:
+#     all_read_dicts = pickle.load(file)
+#
+# print()
+
+
+
 """
 MODIFICATIONS FROM THE LAST PUSH:
 * merging all theta: now all files will have same number of theta
@@ -130,27 +147,39 @@ class Expec_Max:
         #  (AT) UNCOMMENT
         # Loop over all file names provided and parses the reads with
 
-        for index, file_name in enumerate(self.file_names_list, start=1):
-            start = time.time()
-            # Parse the BAM file
-            read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
-            # Store the dictionaries in the universal dictionary with a sample key
-            sample_key = f'sample{index}'
-            self.all_read_dicts[sample_key] = read_dict
-            self.all_ref_len_dicts[sample_key] = ref_len_dict
-            end = time.time()
-            print(f"Time taken to run the code was {end - start} seconds")
+        # for index, file_name in enumerate(self.file_names_list, start=1):
+        #     start = time.time()
+        #     # Parse the BAM file
+        #     read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
+        #     # Store the dictionaries in the universal dictionary with a sample key
+        #     sample_key = f'sample{index}'
+        #     self.all_read_dicts[sample_key] = read_dict
+        #     self.all_ref_len_dicts[sample_key] = ref_len_dict
+        #     end = time.time()
+        #     print(f"Time taken to run the code was {end - start} seconds")
 
         # (AT) COMMENT
         # because parsing takes a bit of time, saved couple of file to develop working code
-        with open('Illumina_Day0_rep1_read_dict.pkl', 'rb') as file:
+        """ SET 1 """
+        with open('pkl_files/Illumina_Day0_rep1_read.pkl', 'rb') as file:
             self.all_read_dicts['sample1'] = pickle.load(file)
-        with open('Illumina_Day0_rep1_ref_len_dict.pkl', 'rb') as file:
-            self.all_ref_len_dicts['sample1'] = pickle.load(file)
-        with open('Illumina_Day0_rep2_read_dict.pkl', 'rb') as file:
+        # with open('pkl_files/Illumina_Day0_rep1_ref_len.pkl', 'rb') as file:
+        #     self.all_ref_len_dicts['sample1'] = pickle.load(file)
+        with open('pkl_files/PacBio_Day0_rep1.pkl', 'rb') as file:
             self.all_read_dicts['sample2'] = pickle.load(file)
-        with open('Illumina_Day0_rep2_ref_len_dict.pkl', 'rb') as file:
+        with open('pkl_files/PacBio_Day0_rep1_ref_len.pkl', 'rb') as file:
             self.all_ref_len_dicts['sample2'] = pickle.load(file)
+
+        """ SET 2 """
+        # with open('pkl_files/Illumina_Day0_rep2_read.pkl', 'rb') as file:
+        #     self.all_read_dicts['sample1'] = pickle.load(file)
+        # with open('pkl_files/Illumina_Day0_rep2_ref_len.pkl', 'rb') as file:
+        #     self.all_ref_len_dicts['sample1'] = pickle.load(file)
+        # with open('pkl_files/PacBio_Day0_rep2.pkl', 'rb') as file:
+        #     self.all_read_dicts['sample2'] = pickle.load(file)
+        # with open('pkl_files/PacBio_Day0_rep2_ref_len.pkl', 'rb') as file:
+        #     self.all_ref_len_dicts['sample2'] = pickle.load(file)
+
 
 
         # with open('read_dict_long.pkl', 'rb') as file:
@@ -265,7 +294,6 @@ class Expec_Max:
                                                                                       self.max_em_rounds))
         # Plot some figures
         # gen_img.plot_EM_results(alpha_history, convergence_history, theta_history)
-
         # Write out results
         self.log.warning("Summarize data")
 
