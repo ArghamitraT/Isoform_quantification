@@ -1,6 +1,4 @@
-"""
-This file has vanilla EM (MLE), can take long read and short read and merge them.
-"""
+""" ORIGINAL NanoCount code """
 
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
@@ -13,22 +11,56 @@ from collections import *
 import pysam
 import pandas as pd
 from tqdm import tqdm
-import hashlib
-import pickle
+import time
 
 # Local imports
 from NanoCount.Read import Read
 from NanoCount.common import *
 
 # ~~~~~~~~~~~~~~MAIN FUNCTION~~~~~~~~~~~~~~ #
+
+class Read_new:
+    def __init__(self):
+        self.alignment_list = []
+
+    def __repr__(self):
+        m = ""
+        for r in self.alignment_list:
+            m += "\t\t{}\n".format(r)
+        return m
+
+    def add_alignment(self, alignment):
+        self.alignment_list.append(alignment)
+
+    def to_json(self):
+        return self.__repr__()
+
+# Define the Alignment class
+class Alignment:
+    def __init__(self, q, r, qlen=0, align_len=0, align_score=0, secondary=False):
+        self.qname = q
+        self.rname = r
+        self.qlen = qlen
+        self.align_len = align_len
+        self.align_score = align_score
+        self.secondary = secondary
+
+    def __repr__(self):
+        return f"Query:{self.qname} | Reference:{self.rname} | Query len:{self.qlen} | Alignment len:{self.align_len} | Align Score:{self.align_score} | Secondary:{self.secondary}"
+
+class EnhancedOrderedDict(OrderedDict):
+    def add(self, key, value=None):
+        """Adds a key with a default value if not specified."""
+        if key not in self:
+            self[key] = value
+
+
 class NanoCount:
 
     # ~~~~~~~~~~~~~~MAGIC METHODS~~~~~~~~~~~~~~ #
     def __init__(
         self,
-        short_read_file: str,   #(AT)
-        long_read_file: str,    #(AT)
-        alignment_file: str="",
+        alignment_file: str,
         count_file: str = "",
         filter_bam_out: str = "",
         min_alignment_length: int = 50,
@@ -44,6 +76,8 @@ class NanoCount:
         max_dist_5_prime: int = -1,
         verbose: bool = False,
         quiet: bool = False,
+        downsampled_files="",
+
     ):
         """
         Estimate abundance of transcripts using an EM
@@ -92,8 +126,6 @@ class NanoCount:
         log_dict(opt_summary_dict, self.log.debug, "Options summary")
 
         # Save args in self variables
-        self.short_read_file = short_read_file   # (AT)
-        self.long_read_file = long_read_file     # (AT)
         self.alignment_file = alignment_file
         self.count_file = count_file
         self.filter_bam_out = filter_bam_out
@@ -109,52 +141,21 @@ class NanoCount:
         self.max_dist_5_prime = max_dist_5_prime
         self.max_dist_3_prime = max_dist_3_prime
 
+        self.downsampled_files = downsampled_files
+        # self.temp_read_dicts = defaultdict(Read)
+        # self.read_dict = defaultdict(Read) # (AT)
+
         self.log.warning("Initialise Nanocount")
 
         # Collect all alignments grouped by read name
         self.log.info("Parse Bam file and filter low quality alignments")
+        start = time.time()
+        self.read_dict = self._parse_bam()  # (AT)
+        # self.load_data()    # (AT)
+        end = time.time()
+        print(f"Time taken to run the parsing was {end - start} seconds")
 
-        # (AT) start
-        # UNCOMMENT
-        # read_dict_short, ref_len_dict_short = self._parse_bam(read='short')
-        # read_dict_long, ref_len_dict_long = self._parse_bam(read='long')
 
-        # COMMENT
-        with open('read_dict_short.pkl', 'rb') as file:
-            read_dict_short = pickle.load(file)
-        with open('read_dict_long.pkl', 'rb') as file:
-            read_dict_long = pickle.load(file)
-        with open('ref_len_dict_short.pkl', 'rb') as file:
-            ref_len_dict_short = pickle.load(file)
-        with open('ref_len_dict_long.pkl', 'rb') as file:
-            ref_len_dict_long = pickle.load(file)
-
-        # Initialize merged_dict with an appropriate default factory
-        self.read_dict = defaultdict()
-        # Add all items from the first dictionary to self.read_dict
-        for key, value in read_dict_long.items():
-            self.read_dict[key] = value
-
-        # Merge with items from the second dictionary, combining values if key exists
-        for key, value in read_dict_short.items():
-            if key in self.read_dict:
-                # Combine values; this could be a list, a sum, etc., depending on your needs; Here, we're creating a list of values
-                if not isinstance(self.read_dict[key], list):
-                    self.read_dict[key] = [self.read_dict[key]]
-                self.read_dict[key].append(value)
-            else:
-                # If the key is not in self.read_dict, simply add it
-                self.read_dict[key] = value
-
-        # merging the transcript length for both long and short read
-        self.ref_len_dict = OrderedDict()
-        self.ref_len_dict = {k: v for k, v in ref_len_dict_long.items() if k not in ref_len_dict_short}
-        self.ref_len_dict.update(ref_len_dict_short)
-
-        # Add all items from the first dictionary to self.read_dict
-        for key, value in ref_len_dict_long.items():
-            self.ref_len_dict[key] = value
-        # (AT) end
 
         if self.filter_bam_out:
             self.log.info("Write selected alignments to BAM file")
@@ -162,26 +163,7 @@ class NanoCount:
 
         # Generate compatibility dict grouped by reads
         self.log.info("Generate initial read/transcript compatibility index")
-        compatibility_dict = self.get_compatibility_modified() #(AT)
-
-        # (AT) start edit
-        hashed_compatibility_dict = defaultdict(dict)
-        # Iterate over the compatibility_dict to populate hashed_compatibility_dict
-        for key, value in compatibility_dict.items():
-            # Use the values (which are dictionaries) to create a hash key
-            value_tuple = tuple(value.items())  # This creates a hashable tuple of the dictionary items
-            hashed_key = self.hash_key(value_tuple)
-
-            # Merge dictionaries with the same hash, or add them if not present
-            if hashed_key in hashed_compatibility_dict:
-                # Update the existing dictionary with the new values, if they don't already exist
-                for subkey, subvalue in value.items():
-                    if subkey not in hashed_compatibility_dict[hashed_key]:
-                        hashed_compatibility_dict[hashed_key][subkey] = subvalue
-            else:
-                hashed_compatibility_dict[hashed_key] = value
-        self.compatibility_dict =  hashed_compatibility_dict
-        # (AT) end edit
+        self.compatibility_dict = self._get_compatibility()
 
         # EM loop to calculate abundance and update read-transcript compatibility
         self.log.warning("Start EM abundance estimate")
@@ -236,39 +218,24 @@ class NanoCount:
             self.log.info("Write file")
             self.count_df.to_csv(self.count_file, sep="\t")
 
-    # (AT)
-    def hash_key(self, elements):
-        # Create a stable hash of the sorted elements using a cryptographic hash function
-        # Convert the elements tuple to a string and encode to bytes before hashing
-        return hashlib.sha256(str(sorted(elements)).encode('utf-8')).hexdigest()
+    def load_data(self):
+        with open(self.downsampled_files) as f:
+            header = f.readline()
+            for line in f:
+                line = line.strip('\n')
+                q, r = line.split('\t')
+                aln = Alignment(q, r)
+                #self.temp_read_dicts[q].add_alignment(aln)
+                self.read_dict[q].add_alignment(aln)
+                #self.temp_read_lengths.add((r, 0))
+        # self.temp_read_lengths = OrderedDict(list(self.temp_read_lengths))
+        # self.all_read_dicts['sample2'] = self.temp_read_dicts
+        # self.all_ref_len_dicts['sample2'] = self.temp_read_lengths
+        print('Data Loaded and Processed')
 
-    # (AT)
-    def is_iterable(self, obj):
-        """
-        Check if obj is iterable but not a string.
-        """
-        return isinstance(obj, (list, tuple, set, dict, frozenset)) and not isinstance(obj, (str, bytes))
-
-    def get_compatibility_modified(self):
-        """"""
-        compatibility_dict = defaultdict(dict)
-
-        for read_name, read in self.read_dict.items():
-            # Check if read is iterable and not a string; if not, make it a list
-            if not self.is_iterable(read):
-                read = [read]  # Wrap non-iterable read in a list
-
-            for alignment in read:
-                for string in alignment.alignment_list:
-                    score = 1.0 / alignment.n_alignment
-                    compatibility_dict[read_name][string.rname] = \
-                        ((score * string.align_len)/self.ref_len_dict[string.rname])
-
-        return compatibility_dict
 
     # ~~~~~~~~~~~~~~PRIVATE METHODS~~~~~~~~~~~~~~ #
-    
-    def _parse_bam(self, read='short'):
+    def _parse_bam(self):
         """
         Parse Bam/Sam file, group alignments per reads, filter reads based on
         selection criteria and return a dict of valid read/alignments
@@ -277,16 +244,7 @@ class NanoCount:
         read_dict = defaultdict(Read)
         ref_len_dict = OrderedDict()
         c = Counter()
-
-        # (AT) which file to align (can be optimized)
-        if read == 'short':
-            aligned_read = self.short_read_file
-        else:
-            aligned_read = self.long_read_file
-
-        # (AT)
-        # with pysam.AlignmentFile(self.alignment_file) as bam:
-        with pysam.AlignmentFile(aligned_read) as bam:
+        with pysam.AlignmentFile(self.alignment_file) as bam:
 
             # Collect reference lengths in dict
             for name, length in zip(bam.references, bam.lengths):
@@ -357,9 +315,7 @@ class NanoCount:
 
         # Write filtered reads counters
         log_dict(d=c, logger=self.log.info, header="Summary of reads filtered")
-
-        # (AT)
-        return filtered_read_dict, ref_len_dict
+        return filtered_read_dict
 
     def _write_bam(self):
         """"""
@@ -384,20 +340,12 @@ class NanoCount:
 
         log_dict(d=c, logger=self.log.info, header="Summary of alignments written to bam")
 
-    
     def _get_compatibility(self):
         """"""
         compatibility_dict = defaultdict(dict)
-
         for read_name, read in self.read_dict.items():
-            # Check if read is iterable and not a string; if not, make it a list
-            if not self.is_iterable(read):
-                read = [read]  # Wrap non-iterable read in a list
-
-            for alignment in read:
-                for string in alignment.alignment_list:
-                    compatibility_dict[read_name][string.rname] = \
-                        score = 1.0 / alignment.n_alignment
+            for alignment in read.alignment_list:
+                compatibility_dict[read_name][alignment.rname] = score = 1.0 / read.n_alignment
 
         return compatibility_dict
 

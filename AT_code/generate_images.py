@@ -2,11 +2,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr
 import pandas as pd
-
+import datetime
+import time
+import os
 
 def create_image_name(name, format=".png"):
-    import datetime
-    import time
+
     crnt_tm = datetime.datetime.now()
     image_name = (name+"_" + str(crnt_tm.year) + "_" + str(crnt_tm.month) + "_" + str(crnt_tm.day) + "_"
                   + time.strftime("%H_%M_%S") + format)
@@ -108,3 +109,113 @@ def spearman_corr(our_quant, sample):
     # Output the results
     print(f'Spearman correlation coefficient {sample}: {correlation}')
     print(f'P-value {sample}: {p_value}')
+
+def fraction_to_float_gen(value):
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+def split_transcript_name(transcript):
+    return transcript.split('|')[0]
+
+def spearman_corr_generic(file_path1, file_path2):
+    # Load the datasets
+    our_quant = pd.read_csv(file_path1, sep="\t")
+    ground_truth = pd.read_csv(file_path2, sep="\t")
+
+    # Apply the function to the 'transcript_name' column of your DataFrame
+    our_quant['transcript_name'] = our_quant['transcript_name'].apply(split_transcript_name)
+    ground_truth['transcript_name'] = ground_truth['transcript_name'].apply(split_transcript_name)
+
+    # Reset the index in our_quant so that the isoform names become a column
+    # our_quant_reset = our_quant.reset_index()
+
+    # Clean the isoform names in both datasets to match the naming convention
+    # our_quant_reset['cleaned_name'] = our_quant_reset['transcript_name'].str.replace(r'\(\+\)|\(\-\)', '', regex=True)
+    # ground_truth['cleaned_name'] = ground_truth['Name'].str.replace(r'\(\+\)|\(\-\)', '', regex=True)
+
+    # Find common isoforms
+    common_isoforms = pd.merge(our_quant, ground_truth, on='transcript_name', suffixes=('_quant', '_truth'))
+
+    # Ensure both datasets have TPM values in the respective columns named accurately
+    if 'tpm_quant' in common_isoforms and 'tpm_truth' in common_isoforms:
+        # Convert any fractional notation in TPM values from ground_truth to float if necessary
+        common_isoforms['tpm_truth'] = common_isoforms['tpm_truth'].apply(fraction_to_float_gen)
+
+        # Calculate Spearman's correlation using the matched TPM lists
+        correlation, p_value = spearmanr(common_isoforms['tpm_quant'], common_isoforms['tpm_truth'])
+
+        # Output the results
+        print(
+            f"Spearman correlation coefficient between {file_path1.split('/')[-1]} & {file_path2.split('/')[-1]}: {correlation}")
+        print(f"P-value for correlation: {p_value}")
+    else:
+        print("TPM columns missing or incorrectly named in one of the datasets.")
+
+
+output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/')
+
+# REP 2, big
+# file_path1 = output_file+'output_day0rep2_sample2_Day0_Pacbio_2024_4_27_15_14_44.tsv'
+# file_path2 = output_file+'output_day0rep2_sample1_Day0_illumina_2024_4_27_15_14_13.tsv'
+
+# REP 1, big
+# file_path1 = output_file+'output_day0rep1_sample1_Day0_illumina_2024_4_27_14_54_52.tsv'
+# file_path2 = output_file+'output_day0rep1_sample2_Day0_Pacbio_2024_4_27_14_55_49.tsv'
+
+# REP 2, small
+# file_path1 = output_file+'output_day0rep2_sample2_Day0_2_Pacbio_2024_4_26_20_47_51.tsv'
+# file_path2 = output_file+'output_day0rep2_sample1_Day0_1_illumina_2024_4_26_20_47_11.tsv'
+
+# REP 1, small
+# file_path1 = output_file+'output_day0rep1_sample2_Day0_2_Pacbio_2024_4_26_20_11_23.tsv'
+# file_path2 = output_file+'output_day0rep1_sample1_Day0_1_illumina_2024_4_26_20_11_17.tsv'
+
+####### cross replicate #########
+# REP 1 small
+# file_path1 = output_file+'output_IlluRep1_PacRep2_sample1_Day0_1_illumina_2024_4_27_20_48_19.tsv'
+# file_path2 = output_file+'output_IlluRep2_PacRep1_sample2_Day0_2_Pacbio_2024_4_27_20_43_04.tsv'
+
+# REP 2 small
+# file_path1 = output_file+'output_IlluRep2_PacRep1_sample1_Day0_1_illumina_2024_4_27_20_43_03.tsv'
+# file_path2 = output_file+'output_IlluRep1_PacRep2_sample2_Day0_2_Pacbio_2024_4_27_20_48_19.tsv'
+
+
+# REP 1 big
+# file_path1 = output_file+'output_IlluRep1_PacRep2_BIG_sample1_Day0_1_illumina_2024_4_27_21_04_37.tsv'
+# file_path2 = output_file+'output_IlluRep2_PacRep1_BIG_sample2_Day0_2_Pacbio_2024_4_27_21_18_20.tsv'
+
+# REP 2 small
+# file_path1 = output_file+'output_IlluRep2_PacRep1_BIG_sample1_Day0_1_illumina_2024_4_27_21_18_19.tsv'
+# file_path2 = output_file+'output_IlluRep1_PacRep2_BIG_sample2_Day0_2_Pacbio_2024_4_27_21_04_38.tsv'
+
+""" NanoCount """
+# REP 2, big
+# file_path1 = output_file+'Illu_day0rep2_NC.tsv'
+# file_path2 = output_file+'Pac_bigDown_day0rep2_NC.tsv'
+
+# # REP 1, big
+# file_path1 = output_file+'Illu_day0rep1_NC.tsv'
+# file_path2 = output_file+'Pac_bigDown_day0rep1_NC.tsv'
+
+# REP 1, small
+# file_path1 = output_file+'Illu_day0rep1_NC.tsv'
+# file_path2 = output_file+'Pac_smallDown_day0rep1_NC.tsv'
+
+# REP 2, small
+# file_path1 = output_file+'Illu_day0rep2_NC.tsv'
+# file_path2 = output_file+'Pac_smallDown_day0rep2_NC.tsv'
+
+""" StringTie2 """
+# REP 1, small
+file_path1 = ('/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/StringTie_Illumina_Output/'
+              'stringTie_Day0_1_illumina_output.tsv')
+file_path2 = output_file+'Pac_smallDown_day0rep1_NC.tsv'
+
+# REP 2, small
+file_path1 = ('/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/StringTie_Illumina_Output/'
+              'stringTie_Day0_2_illumina_output.tsv')
+file_path2 = output_file+'Pac_smallDown_day0rep2_NC.tsv'
+
+spearman_corr_generic(file_path1, file_path2)

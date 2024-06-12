@@ -1,4 +1,4 @@
-from EM_MAP_GD import Expec_Max
+from EM_VI_GD import Expec_Max
 import os
 
 # input file names
@@ -15,12 +15,12 @@ import os
 
 main_folder = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/PacBio_data_Liz/'
 SIRV_E0 = main_folder + 'day0-rep1/Day0_1_illumina.bam'
-SIRV_E2 = main_folder + 'day0-rep2/Day0_2_illumina.bam'
-output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/Illumina_output')
+SIRV_E2 = main_folder + 'day0-rep2/Day0_2_Pacbio.bam'
+output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/output_timetrial')
 
 # call the main class
-# Expec_Max (file_names=[long_read_file, short_read_file], count_file=output_file)
 Expec_Max (file_names=[SIRV_E0, SIRV_E2], count_file=output_file)
+# Expec_Max (file_names=[SIRV_E0, SIRV_E2], downsampled_files= ["pkl_files/day0_rep2_downsampled_read_stat.txt"], count_file=output_file)
 # Expec_Max (file_names=[SIRV_E2, SIRV_E2], count_file=output_file)
 
 

@@ -14,7 +14,8 @@ import hashlib
 import pickle
 from DirichletOptimizer import DirichletModel
 import numpy as np
-import generate_images as gen_img
+#import generate_images as gen_img
+from scipy.special import psi
 
 # Local imports
 from NanoCount.Read import Read
@@ -113,8 +114,12 @@ class Expec_Max:
         self.all_ref_len_dicts = {}
         self.all_Yri = {}
         self.all_theta = {}
-        self.all_Zri = {}
+        self.all_Phi_ri = {}
         self.all_n = {}
+        self.all_alpha = {}
+        self.all_alpha_prime = {}
+        self.all_isoform_indices = {}
+        self.all_read_iso_prob = {}
 
         self.log.warning("Initialise Nanocount")
 
@@ -155,15 +160,24 @@ class Expec_Max:
         """ EXPLANATION
             * Yri --> Binary Compatibility Matrix
             * theta --> isoform percentage/abundance/quantity
-            * Zri --> Expectation of A (true asignment) matrix
+            * Phi_ri --> Expectation of A (true asignment) matrix
             * n --> # of reads for each isoform
         """
         # All the initial calculation
         for sample_key in self.all_read_dicts:
-            self.all_Yri[sample_key] = self.get_compatibility_modified(sample_key)
-            self.all_theta[sample_key] = self.calculate_theta_0(self.all_Yri[sample_key])
-            self.all_Zri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
-            self.all_n[sample_key] = self.calculate_n(self.all_Zri[sample_key])
+            self.all_Phi_ri[sample_key], self.all_read_iso_prob[sample_key] = self.get_compatibility_modified(sample_key)
+            # self.all_theta[sample_key], self.all_alpha[sample_key], self.all_alpha_prime[sample_key], self.all_isoform_indices[sample_key] \
+            #     = self.calculate_theta_and_alpha_prime_0(self.all_Phi_ri[sample_key])
+
+            self.all_theta[sample_key], self.all_alpha[sample_key], self.all_isoform_indices[sample_key] \
+                = self.calculate_theta_and_alpha_prime_0(self.all_Phi_ri[sample_key])
+
+            # self.all_theta[sample_key], self.all_isoform_indices[sample_key] = self.calculate_theta_0(self.all_Zri[sample_key])
+            # #self.all_Zri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
+            # num_theta = len(self.all_theta[sample_key])     # Get the number of theta values for the sample
+            # self.all_alpha[sample_key] = [1.0] * num_theta      # Create a list of alpha values (you can initialize them to any value you need, here I use 0.0 as an example)
+            # self.all_alpha_prime[sample_key] = self.calculate_alpha_prime_0(self.all_Zri[sample_key], self.all_alpha[sample_key], self.all_isoform_indices[sample_key])
+            #self.all_n[sample_key] = self.calculate_n(self.all_Zri[sample_key])
 
         # find out the reads mathced to more than 1 isoform
         # more_than_one = {key: val for key, val in compatibility_dict_long.items() if len(val) > 1}
@@ -187,16 +201,16 @@ class Expec_Max:
         ) as pbar:
 
             # Initialize the Dirichlet optimizer with the theta data
-            dirichlet_optimizer = DirichletModel(all_theta=self.all_theta)
+            dirichlet_optimizer = DirichletModel(self.all_theta, self.all_isoform_indices, self.all_alpha)
             # Call the method to return alpha and isoform_index to access appropriate alpha to each isoform
-            self.alpha, self.isoform_to_index = dirichlet_optimizer.reutrn_alpha()
+            # self.alpha, self.isoform_to_index = dirichlet_optimizer.return_alpha()
 
             # Initialize storage for thetas, alphas, and convergence values
-            for sample_key in self.all_read_dicts:
-                theta_history[sample_key] = []
-                theta_history[sample_key].append(self.all_theta[sample_key])
-            alpha_history.append(np.mean(self.alpha))
-            convergence_history.append(self.convergence)
+            # for sample_key in self.all_read_dicts:
+            #     theta_history[sample_key] = []
+            #     theta_history[sample_key].append(self.all_theta[sample_key])
+            # alpha_history.append(np.mean(self.alpha))
+            # convergence_history.append(self.convergence)
 
             """ EM and Gradient descent """
             # Iterate until convergence threshold or max EM round are reached
@@ -205,14 +219,24 @@ class Expec_Max:
                 self.em_round += 1
 
                 # Gradient Descent
-                dirichlet_optimizer.update_alpha()
+                # dirichlet_optimizer.update_alpha()
                 # EM
                 for sample_key in self.all_read_dicts:
-                    self.all_theta[sample_key], convergence = self.update_theta(sample_key)
-                    self.all_Zri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
-                    self.all_n[sample_key] = self.calculate_n(self.all_Zri[sample_key])
-                    self.convergence +=convergence
-                    theta_history[sample_key].append(self.all_theta[sample_key]) # store the values for downstream
+
+                    self.all_alpha_prime[sample_key] = self.update_alpha_prime(sample_key)
+                    exp_log_theta_m = self.calculate_exp_log_theta_m(sample_key)
+                    self.all_Phi_ri[sample_key] = self.update_Phi_ri(sample_key, exp_log_theta_m)
+                    self.all_theta[sample_key] = self.update_exp_theta(sample_key)
+
+                # UPDATE ALPHA
+                # .........
+                dirichlet_optimizer.update_alpha()
+
+                    # self.all_theta[sample_key], convergence = self.update_theta(sample_key)
+                    # self.all_Phi_ri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
+                    # self.all_n[sample_key] = self.calculate_n(self.all_Phi_ri[sample_key])
+                    # self.convergence +=convergence
+                    # theta_history[sample_key].append(self.all_theta[sample_key]) # store the values for downstream
                 # store the values for downstream
                 alpha_history.append(np.mean(self.alpha))
                 convergence_history.append(self.convergence)
@@ -255,6 +279,139 @@ class Expec_Max:
 
 
      # ~~~~~~~~~~~~~~NEW FUNCTIONS (AT)~~~~~~~~~~~~~~ #
+
+    def update_alpha_prime(self, sample_key):
+        """
+        Calculates the initial model parameter (isoform percentage) and alpha prime.
+        """
+        all_alpha = self.all_alpha[sample_key]
+        all_Zri = self.all_Phi_ri[sample_key]
+        isoform_indices = self.all_isoform_indices[sample_key]
+
+        # Initialize all_alpha_prime
+        all_alpha_prime = [0.0] * len(all_alpha)
+        for i in range(len(all_alpha)):
+            all_alpha_prime[i] = all_alpha[i]
+
+        # Iterate over each read in all_Zri
+        for read_key, isoform_dict in all_Zri.items():
+            # Iterate over each isoform and its proportion (phi)
+            for isoform, phi in isoform_dict.items():
+                index = isoform_indices[isoform]
+                # Update alpha_prime for the isoform
+                all_alpha_prime[index] += phi
+
+        return all_alpha_prime
+
+    # def update_exp_theta(self, sample_key):
+    #     """
+    #     Calculate the expected value E_Q(theta)[theta_m] for a Dirichlet distribution.
+    #
+    #     Parameters:
+    #     alpha_prime (list or array): The alpha prime values for the isoforms.
+    #
+    #     Returns:
+    #     list: The expected theta values.
+    #     """
+    #     alpha_prime = self.all_alpha_prime[sample_key]
+    #     sum_alpha_prime = sum(alpha_prime)
+    #     expected_theta = [alpha_m / sum_alpha_prime for alpha_m in alpha_prime]
+    #     return expected_theta
+
+    def update_exp_theta(self, sample_key):
+        """
+        Calculate the expected value E_Q(theta)[theta_m] for a Dirichlet distribution.
+
+        Parameters:
+        alpha_prime (list or array): The alpha prime values for the isoforms.
+        isoform_indices (dict): Mapping of isoform names to their indices.
+
+        Returns:
+        Counter: The expected theta values as a Counter.
+        """
+        alpha_prime = self.all_alpha_prime[sample_key]
+        isoform_indices = self.all_isoform_indices[sample_key]
+        sum_alpha_prime = sum(alpha_prime)
+        expected_theta = Counter()
+
+        for isoform, index in isoform_indices.items():
+            expected_theta[isoform] = alpha_prime[index] / sum_alpha_prime
+
+        return expected_theta
+
+    def calculate_exp_log_theta_m(self, sample_key):
+        """
+        Calculate E_Q(theta)[log(theta_m)] for each isoform m.
+        """
+        alpha_prime = self.all_alpha_prime[sample_key]
+        isoform_indices = self.all_isoform_indices[sample_key]
+        sum_alpha_prime = np.sum(alpha_prime)
+        eq_log_theta_m = np.zeros_like(alpha_prime)
+
+        for isoform, index in isoform_indices.items():
+            eq_log_theta_m[index] = psi(alpha_prime[index]) - psi(sum_alpha_prime)
+
+        return eq_log_theta_m
+
+    def update_Phi_ri(self, sample_key, exp_log_theta_m):
+        """
+        Update phi_nm using the equation:
+        phi_nm ∝ p_nm * exp(E_Q(theta)[log(theta_m)])
+        """
+        updated_phi = {}
+
+        for read, isoform_probs in self.all_read_iso_prob[sample_key].items():
+            updated_phi[read] = {}
+            for isoform, p_nm in isoform_probs.items():
+                index = self.all_isoform_indices[sample_key][isoform]
+                updated_phi[read][isoform] = p_nm * np.exp(exp_log_theta_m[index])
+
+            # Normalize phi values for the current read
+            total_phi = np.sum(list(updated_phi[read].values()))
+            for isoform in updated_phi[read]:
+                updated_phi[read][isoform] /= total_phi
+
+        return updated_phi
+    def calculate_theta_and_alpha_prime_0(self, all_Zri):
+        """
+        Calculates the initial model parameter (isoform percentage) and alpha prime.
+        """
+        # Initialize the abundance dictionary and total
+        abundance_dict = Counter()
+        total = 0
+        isoform_indices = {}
+        isoform_counter = 0
+
+        # Calculate abundance and create isoform indices
+        for read_name, comp in all_Zri.items():
+            for ref_name, score in comp.items():
+                abundance_dict[ref_name] += score
+                total += score
+                if ref_name not in isoform_indices:
+                    isoform_indices[ref_name] = isoform_counter
+                    isoform_counter += 1
+
+        # Normalize the abundance dictionary
+        for ref_name in abundance_dict.keys():
+            abundance_dict[ref_name] = abundance_dict[ref_name] / total
+
+        all_alpha = [1.0] * len(abundance_dict)
+
+        # # Initialize all_alpha_prime
+        # all_alpha_prime = [0.0] * len(all_alpha)
+        # for i in range(len(all_alpha)):
+        #     all_alpha_prime[i] = all_alpha[i]
+        #
+        # # Iterate over each read in all_Zri
+        # for read_key, isoform_dict in all_Zri.items():
+        #     # Iterate over each isoform and its proportion (phi)
+        #     for isoform, phi in isoform_dict.items():
+        #         index = isoform_indices[isoform]
+        #         # Update alpha_prime for the isoform
+        #         all_alpha_prime[index] += phi
+        #         return abundance_dict, all_alpha, all_alpha_prime, isoform_indices
+
+        return abundance_dict, all_alpha, isoform_indices
 
     def update_theta(self, sample_key):
         """ Calculates the mode of the dirichlet """
@@ -345,16 +502,21 @@ class Expec_Max:
 
         abundance_dict = Counter()
         total = 0
+        isoform_indices = {}
+        isoform_counter = 0
 
         for read_name, comp in compatibility_dict.items():
             for ref_name, score in comp.items():
                 abundance_dict[ref_name] += score
+                #compatibility_dict[ref_name] += score
                 total += score
+                isoform_indices[ref_name] = isoform_counter
+                isoform_counter += 1
 
         for ref_name in abundance_dict.keys():
             abundance_dict[ref_name] = abundance_dict[ref_name] / total
 
-        return abundance_dict
+        return abundance_dict, isoform_indices
 
     # (AT)
     def hash_key(self, elements):
@@ -379,6 +541,7 @@ class Expec_Max:
         * read_dict -> "Binary Compatibility Matrix: Y_{ri}
         * ref_len_dict -> length of the isoforms """
         compatibility_dict = defaultdict(dict)
+        read_isoform_prob = defaultdict(dict)
         read_dict = self.all_read_dicts[sample_key]
         ref_len_dict = self.all_ref_len_dicts[sample_key]
 
@@ -392,8 +555,9 @@ class Expec_Max:
             so we need to multiply the score by (1/n-k+1). This is the way to incorporate isoform length """
             for alignment in read:
                 for string in alignment.alignment_list:
-                    compatibility_dict[read_name][string.rname] = 1 / (ref_len_dict[string.rname]-string.align_len+1)
-        return compatibility_dict
+                    compatibility_dict[read_name][string.rname] = 1 / len(alignment.alignment_list)
+                    read_isoform_prob[read_name][string.rname]= 1 / (ref_len_dict[string.rname] - string.align_len + 1)
+        return compatibility_dict, read_isoform_prob
 
 
 

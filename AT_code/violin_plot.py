@@ -5,7 +5,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr
+import generate_images as gen_img
 
+"""
 def fraction_to_float(fraction_str):
     # Strip the input to remove any leading/trailing whitespace
     fraction_str = fraction_str.strip()
@@ -92,13 +94,14 @@ def getE2data(file_path_data, xlsx_df):
     return log_tpms
 
 # Specify the base path for data files
-main_dir = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/SIRV/Anvit_NanoCount_Out_E0_E2/'
+main_dir = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/SIRV/Anvit_SOTA_Output/'
 xlsx_df = pd.read_csv(main_dir + "E2_molarity.tsv", sep="\t")
 
 # Dictionary of E0 data paths
 data_paths_E0 = {
-    "NC E0": main_dir + "E0_tx_counts.tsv",
-    "OM E0": main_dir + "SIRV_output_sample1_aln_E0.tsv",
+    "StringTie2 E0": main_dir + "nanoCount_E0_output.tsv",
+    "NanoCount E0": main_dir + "nanoCount_E0_output.tsv",
+    "OurModel E0": main_dir + "SIRV_output_sample1_aln_E0.tsv",
     # Additional data sources can be added here
 }
 
@@ -113,25 +116,28 @@ sns.violinplot(data=combined_E0)
 plt.title("Violin Plot of E0 TPM Data")
 plt.ylim(0, 15)
 plt.ylabel("TPM (loge)")
+plt.xticks(fontsize=25)  # Increase x-axis tick label font size
+plt.yticks(fontsize=25)
 plt.grid()
-plt.savefig('figures/SIRV_E0.png')
+#plt.savefig('figures/'+gen_img.create_image_name('SIRV_E0'))
 plt.show()
 
 # Dictionary of E2 data paths
 data_paths_E2 = {
-    "NC": main_dir + "E2_tx_counts.tsv",
-    "OM": main_dir + "SIRV_output_sample2_aln_E2.tsv",
+    "StringTie2 E2": main_dir + "nanoCount_E2_output.tsv",
+    "NanoCount E2": main_dir + "nanoCount_E2_output.tsv",
+    "OurModel E2": main_dir + "SIRV_output_sample2_aln_E2.tsv",
     # Additional data sources can be added here
 }
 
-{label: get_spearsman_corr(path) for label, path in data_paths_E2.items()}
+# {label: get_spearsman_corr(path) for label, path in data_paths_E2.items()}
 
 # Load and transform E2 data for all conditions
 combined_E2_data = {}
 conditions = ["1/32", "1/4", "1", "4"]
 
 # Initialize a dictionary to hold the data for plotting
-plot_data = {f"{condition} {dataset}": [] for condition in conditions for dataset in ["NC", "OM"]}
+plot_data = {f"{condition} {dataset}": [] for condition in conditions for dataset in ["StringTie2 E2", "NanoCount E2", "OurModel E2"]}
 
 for dataset_label, path in data_paths_E2.items():
     e2_data = getE2data(path, xlsx_df)
@@ -145,7 +151,8 @@ data_rows = []
 # Iterate over each key-value pair in the plot_data dictionary
 for group_label, values in plot_data.items():
     # Extract the condition and dataset from the group_label
-    condition, dataset = group_label.split(' ')
+    dataset = group_label.split(' ')[1]
+    condition = group_label.split(' ')[0]
     # Create a dictionary for each value and append to the list
     for value in values:
         data_rows.append({'Condition': condition, 'Dataset': dataset, 'Value': value})
@@ -155,20 +162,120 @@ df = pd.DataFrame(data_rows)
 
 # Plotting
 plt.figure(figsize=(16, 6))
-sns.violinplot(x='Condition', y='Value', hue='Dataset', data=df, split=False)
+violin = sns.violinplot(x='Condition', y='Value', hue='Dataset', data=df, split=False)
 plt.title("Side-by-side Violin Plot of E2 TPM Data by Condition and Dataset")
 plt.ylim(0, 15)
 plt.ylabel("TPM (loge)")
-plt.legend(title='Dataset')
+#plt.legend(title='Dataset')
+violin.legend_.remove()
+plt.xticks(fontsize=25)  # Increase x-axis tick label font size
+plt.yticks(fontsize=25)
 plt.grid()
-plt.savefig('figures/SIRV_E2_side_by_side.png')
+plt.savefig('figures/'+gen_img.create_image_name('SIRV_E2'))
 plt.show()
 
 
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Example DataFrame
+data = {
+    'Category': ['StringTie2', 'NanoCount', 'Our Model'],
+    'Values': [0.46, 0.41, 0.31]
+}
+df = pd.DataFrame(data)
+
+# Create a bar plot
+plt.figure(figsize=(5, 3))  # Set the figure size
+sns.barplot(x='Category', y='Values', data=df, width=0.5)
+
+# Adding title and labels
+plt.title('SIRV E0 Coefficient of Variance')
+# plt.xlabel('Category')
+plt.ylabel('CV')
+plt.grid()
+plt.savefig('figures/'+gen_img.create_image_name('SIRV_E0_CV'))
+# Show the plot
+plt.show()
 
 
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Example DataFrame
+data = {
+    'Category': ['StringTie2', 'NanoCount', 'Our Model'],
+    'Values': [0.79, 0.87, 0.87]
+}
+df = pd.DataFrame(data)
+
+# Create a bar plot
+plt.figure(figsize=(5, 3))  # Set the figure size
+sns.barplot(x='Category', y='Values', data=df, width=0.5)
+
+# Adding title and labels
+plt.title('SIRV E2 Spearman Correlation')
+# plt.xlabel('Category')
+plt.ylabel('Correlation')
+plt.grid()
+plt.savefig('figures/'+gen_img.create_image_name('SIRV_E2_Corr'))
+# Show the plot
+plt.show()
+"""
 
 
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Example DataFrame
+# data = {
+#     'Category': ['StringTie2', 'NanoCount', 'Our Model'],
+#     'Values': [0.16, 0.11, 0.25]
+# }
+# df = pd.DataFrame(data)
+#
+# # Create a bar plot
+# plt.figure(figsize=(6, 3))  # Set the figure size
+#
+# palette = {'NanoCount': 'orange', 'Our Model': 'green'}
+# #sns.barplot(x='Category', y='Values', data=df, palette=palette, width=0.25)
+# sns.barplot(x='Category', y='Values', data=df, width=0.5)
+#
+#
+# # Adding title and labels
+# plt.title('Replicate 2 Spearman Correlation')
+# # plt.xlabel('Category')
+# plt.ylabel('Correlation')
+# plt.grid()
+# plt.savefig('figures/'+gen_img.create_image_name('rep2_Corr'))
+# # Show the plot
+# plt.show()
+
+data = {
+    'Category': ['StringTie2', 'NanoCount', 'Our Model'],
+    'Values': [0.14, 0.075, 0.22]
+}
+df = pd.DataFrame(data)
+
+# Create a bar plot
+plt.figure(figsize=(6, 3))  # Set the figure size
+
+palette = {'NanoCount': 'orange', 'Our Model': 'green'}
+#sns.barplot(x='Category', y='Values', data=df, palette=palette, width=0.25)
+sns.barplot(x='Category', y='Values', data=df, width=0.5)
+
+
+# Adding title and labels
+plt.title('Replicate 1 Spearman Correlation')
+# plt.xlabel('Category')
+plt.ylabel('Correlation')
+plt.grid()
+plt.savefig('figures/'+gen_img.create_image_name('rep1_Corr'))
+# Show the plot
+plt.show()
 # # Load E2 data for all conditions and datasets
 # e2_data_list = []
 # for label, path in data_paths_E2.items():
