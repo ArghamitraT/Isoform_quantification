@@ -1,5 +1,5 @@
 """
-This file implements EM, MAP and calls GD.
+This file implements EM, VI and calls GD.
 The math and detail explanation is on this file: https://drive.google.com/file/d/1LGLhGvn3KRAYunf995ZVAYA4w2lgRYfr/view?usp=sharing
 """
 
@@ -14,8 +14,8 @@ import hashlib
 import pickle
 from DirichletOptimizer import DirichletModel
 import numpy as np
-#import generate_images as gen_img
-from scipy.special import psi
+import generate_images as gen_img
+from scipy.special import psi, gammaln
 
 # Local imports
 from NanoCount.Read import Read
@@ -37,7 +37,7 @@ class Expec_Max:
             min_query_fraction_aligned: float = 0.5,
             sec_scoring_threshold: float = 0.95,
             sec_scoring_value: str = "alignment_score",
-            convergence_target: float = 0.005,
+            convergence_target: float = 0.001,
             max_em_rounds: int = 100,
             extra_tx_info: bool = False,
             primary_score: str = "alignment_score",
@@ -45,6 +45,7 @@ class Expec_Max:
             max_dist_5_prime: int = -1,
             verbose: bool = False,
             quiet: bool = False,
+            alpha_initial: float = 3,
     ):
         """
         NOTE: File file does not use any hashing and runs EM on both ambiguous and unambiguous reads. This can be improved in future
@@ -120,6 +121,9 @@ class Expec_Max:
         self.all_alpha_prime = {}
         self.all_isoform_indices = {}
         self.all_read_iso_prob = {}
+        self.exp_log_theta = {}
+        self.elbo = {}
+        self.alpha_initial = alpha_initial
 
         self.log.warning("Initialise Nanocount")
 
@@ -128,27 +132,28 @@ class Expec_Max:
 
         #  (AT) UNCOMMENT
         # Loop over all file names provided and parses the reads with
-        # for index, file_name in enumerate(self.file_names_list, start=1):
-        #     # Parse the BAM file
-        #     read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
-        #     # Store the dictionaries in the universal dictionary with a sample key
-        #     sample_key = f'sample{index}'
-        #     self.all_read_dicts[sample_key] = read_dict
-        #     self.all_ref_len_dicts[sample_key] = ref_len_dict
+        for index, file_name in enumerate(self.file_names_list, start=1):
+            # Parse the BAM file
+            read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
+            # Store the dictionaries in the universal dictionary with a sample key
+            sample_key = f'sample{index}'
+            self.all_read_dicts[sample_key] = read_dict
+            self.all_ref_len_dicts[sample_key] = ref_len_dict
+
         # (AT) COMMENT
         # because parsing takes a bit of time, saved couple of file to develop working code
         # with open('read_dict_long.pkl', 'rb') as file:
         #     self.all_read_dicts['sample1'] = pickle.load(file)
         # with open('ref_len_dict_long.pkl', 'rb') as file:
         #     self.all_ref_len_dicts['sample1'] = pickle.load(file)
-        with open('pkl_files/read_nano_ambi.pickle', 'rb') as file:
-            self.all_read_dicts['sample1'] = pickle.load(file)
-        with open('pkl_files/ref_len_nano_ambi.pickle', 'rb') as file:
-            self.all_ref_len_dicts['sample1'] = pickle.load(file)
-        with open('pkl_files/read_dict_short.pkl', 'rb') as file:
-            self.all_read_dicts['sample2'] = pickle.load(file)
-        with open('pkl_files/ref_len_dict_short.pkl', 'rb') as file:
-            self.all_ref_len_dicts['sample2'] = pickle.load(file)
+        # with open('pkl_files/read_nano_ambi.pickle', 'rb') as file:
+        #     self.all_read_dicts['sample1'] = pickle.load(file)
+        # with open('pkl_files/ref_len_nano_ambi.pickle', 'rb') as file:
+        #     self.all_ref_len_dicts['sample1'] = pickle.load(file)
+        # with open('pkl_files/read_dict_short.pkl', 'rb') as file:
+        #     self.all_read_dicts['sample2'] = pickle.load(file)
+        # with open('pkl_files/ref_len_dict_short.pkl', 'rb') as file:
+        #     self.all_ref_len_dicts['sample2'] = pickle.load(file)
 
         if self.filter_bam_out:
             self.log.info("Write selected alignments to BAM file")
@@ -166,18 +171,8 @@ class Expec_Max:
         # All the initial calculation
         for sample_key in self.all_read_dicts:
             self.all_Phi_ri[sample_key], self.all_read_iso_prob[sample_key] = self.get_compatibility_modified(sample_key)
-            # self.all_theta[sample_key], self.all_alpha[sample_key], self.all_alpha_prime[sample_key], self.all_isoform_indices[sample_key] \
-            #     = self.calculate_theta_and_alpha_prime_0(self.all_Phi_ri[sample_key])
-
             self.all_theta[sample_key], self.all_alpha[sample_key], self.all_isoform_indices[sample_key] \
                 = self.calculate_theta_and_alpha_prime_0(self.all_Phi_ri[sample_key])
-
-            # self.all_theta[sample_key], self.all_isoform_indices[sample_key] = self.calculate_theta_0(self.all_Zri[sample_key])
-            # #self.all_Zri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
-            # num_theta = len(self.all_theta[sample_key])     # Get the number of theta values for the sample
-            # self.all_alpha[sample_key] = [1.0] * num_theta      # Create a list of alpha values (you can initialize them to any value you need, here I use 0.0 as an example)
-            # self.all_alpha_prime[sample_key] = self.calculate_alpha_prime_0(self.all_Zri[sample_key], self.all_alpha[sample_key], self.all_isoform_indices[sample_key])
-            #self.all_n[sample_key] = self.calculate_n(self.all_Zri[sample_key])
 
         # find out the reads mathced to more than 1 isoform
         # more_than_one = {key: val for key, val in compatibility_dict_long.items() if len(val) > 1}
@@ -201,16 +196,7 @@ class Expec_Max:
         ) as pbar:
 
             # Initialize the Dirichlet optimizer with the theta data
-            dirichlet_optimizer = DirichletModel(self.all_theta, self.all_isoform_indices, self.all_alpha)
-            # Call the method to return alpha and isoform_index to access appropriate alpha to each isoform
-            # self.alpha, self.isoform_to_index = dirichlet_optimizer.return_alpha()
-
-            # Initialize storage for thetas, alphas, and convergence values
-            # for sample_key in self.all_read_dicts:
-            #     theta_history[sample_key] = []
-            #     theta_history[sample_key].append(self.all_theta[sample_key])
-            # alpha_history.append(np.mean(self.alpha))
-            # convergence_history.append(self.convergence)
+            dirichlet_optimizer = DirichletModel(self.all_theta, self.all_isoform_indices, self.all_alpha, self.exp_log_theta)
 
             """ EM and Gradient descent """
             # Iterate until convergence threshold or max EM round are reached
@@ -218,27 +204,24 @@ class Expec_Max:
                 self.convergence = 0
                 self.em_round += 1
 
-                # Gradient Descent
-                # dirichlet_optimizer.update_alpha()
                 # EM
                 for sample_key in self.all_read_dicts:
-
                     self.all_alpha_prime[sample_key] = self.update_alpha_prime(sample_key)
-                    exp_log_theta_m = self.calculate_exp_log_theta_m(sample_key)
-                    self.all_Phi_ri[sample_key] = self.update_Phi_ri(sample_key, exp_log_theta_m)
-                    self.all_theta[sample_key] = self.update_exp_theta(sample_key)
+                    self.exp_log_theta[sample_key] = self.calculate_exp_log_theta_m(sample_key)
+                    self.all_Phi_ri[sample_key] = self.update_Phi_ri(sample_key)
+                    self.all_theta[sample_key], convergence = self.update_exp_theta(sample_key)
+                    self.elbo[sample_key] = self.calculate_elbo(sample_key)
+                    self.convergence += convergence
+
 
                 # UPDATE ALPHA
-                # .........
                 dirichlet_optimizer.update_alpha()
+                self.convergence = self.convergence/len(self.all_alpha)
+                self.log.info("loop {}, convergence {} ".format(self.em_round, self.convergence))
 
-                    # self.all_theta[sample_key], convergence = self.update_theta(sample_key)
-                    # self.all_Phi_ri[sample_key] = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key])
-                    # self.all_n[sample_key] = self.calculate_n(self.all_Phi_ri[sample_key])
-                    # self.convergence +=convergence
-                    # theta_history[sample_key].append(self.all_theta[sample_key]) # store the values for downstream
+
                 # store the values for downstream
-                alpha_history.append(np.mean(self.alpha))
+                # alpha_history.append(np.mean(self.alpha))
                 convergence_history.append(self.convergence)
                 pbar.update(1)
                 self.log.debug("EM Round: {} / Convergence value: {}".format(self.em_round, self.convergence))
@@ -250,35 +233,89 @@ class Expec_Max:
                 "Convergence target ({}) could not be reached after {} rounds".format(self.convergence_target,
                                                                                       self.max_em_rounds))
         # Plot some figures
-        gen_img.plot_EM_results(alpha_history, convergence_history, theta_history)
+        # gen_img.plot_EM_results(alpha_history, convergence_history, theta_history)
 
         # Write out results
         self.log.warning("Summarize data")
+        indx = 0
+        for sample, theta in self.all_theta.items():
+            self.log.info(f"Processing {sample}")
+            count_df = pd.DataFrame(theta.most_common(), columns=["transcript_name", "raw"])
+            count_df.set_index("transcript_name", inplace=True, drop=True)
 
-        self.log.info("Convert results to dataframe")
-        self.count_df = pd.DataFrame(self.abundance_dict.most_common(), columns=["transcript_name", "raw"])
-        self.count_df.set_index("transcript_name", inplace=True, drop=True)
+            self.log.info("Compute estimated counts and TPM")
+            # Adjusted to use the length of read_dict for the current sample
+            count_df["est_count"] = count_df["raw"] * len(self.all_read_dicts[sample])
+            count_df["tpm"] = count_df["raw"] * 1000000 / sum(theta.values())
 
-        self.log.info("Compute estimated counts and TPM")
-        self.count_df["est_count"] = self.count_df["raw"] * len(self.read_dict)
-        self.count_df["tpm"] = self.count_df["raw"] * 1000000
+            # Add extra transcript info if required
+            if self.extra_tx_info:
+                tx_df = self._get_tx_df()
+                count_df = pd.merge(count_df, tx_df, left_index=True, right_index=True, how="outer")
 
-        # Add extra transcript info is required
-        if self.extra_tx_info:
-            tx_df = self._get_tx_df()
-            self.count_df = pd.merge(self.count_df, tx_df, left_index=True, right_index=True, how="outer")
+            # Cleanup and sort
+            count_df.sort_values(by="raw", ascending=False, inplace=True)
+            count_df.fillna(value=0, inplace=True)
+            count_df.index.name = "transcript_name"
 
-        # Cleanup and sort
-        self.count_df.sort_values(by="raw", ascending=False, inplace=True)
-        self.count_df.fillna(value=0, inplace=True)
-        self.count_df.index.name = "transcript_name"
+            # get Spearman's correlation
+            # gen_img.spearman_corr(count_df, sample)
 
-        if self.count_file:
-            self.log.info("Write file")
-            self.count_df.to_csv(self.count_file, sep="\t")
+            # The output file could be named according to the sample
+            file_name = (self.count_file + '_' + sample + '_' +
+                         self.file_names_list[indx].split('/')[-1].split('.')[0])
+            file_name_timestamp = gen_img.create_image_name(file_name, format="")
+            count_file = f"{file_name_timestamp}.tsv" if self.count_file else None
+            if count_file:
+                self.log.info(f"Write file for {sample}")
+                count_df.to_csv(count_file, sep="\t")
+            indx += 1
+        # end = time.time()
+        # print(f"Time taken to run the code was {end - start} seconds")
 
 
      # ~~~~~~~~~~~~~~NEW FUNCTIONS (AT)~~~~~~~~~~~~~~ #
+    def calculate_elbo(self, sample_key):
+
+        # Extract necessary variables
+        Phi_nm = self.all_Phi_ri[sample_key]
+        Pnm = self.all_read_iso_prob[sample_key]
+        alpha = self.all_alpha[sample_key]
+        alpha_prime = self.all_alpha_prime[sample_key]
+        exp_log_theta = self.exp_log_theta[sample_key]
+        isoform_indices = self.all_isoform_indices[sample_key]
+
+        # Initialize ELBO components
+        elbo = 0.0
+
+        # Calculate the first component: \sum_{n=1}^{N} \sum_{m=1}^{M} \phi_{nm} \left( \log \frac{p_{nm}}{\phi_{nm}} + \psi(\alpha_m) - \psi\left(\sum_{m=1}^{M} \alpha_m'\right) \right)
+        sum_alpha_prime = sum(alpha_prime)
+        # psi_sum_alpha_prime = psi(sum_alpha_prime)
+        for n, phi_n in Phi_nm.items():
+            for m, phi_nm in phi_n.items():
+                p_nm = Pnm[n][m]
+                elbo += phi_nm * (np.log(p_nm / phi_nm) + exp_log_theta[m])
+                if np.isnan(elbo):
+                    raise ValueError(f"NaN encountered in first component for isoform {m} and read {n}")
+
+
+        # Calculate the second component: \log \frac{\Gamma(\sum_{m=1}^{M} \alpha_m)}{\Gamma(\sum_{m=1}^{M} \alpha_m')}
+        sum_alpha = sum(alpha)
+        log_gamma_sum_alpha = gammaln(sum_alpha)
+        log_gamma_sum_alpha_prime = gammaln(sum_alpha_prime)
+        elbo += log_gamma_sum_alpha - log_gamma_sum_alpha_prime
+
+        # Calculate the third component: \sum_{m=1}^{M} \log \frac{\Gamma(\alpha_m')}{\Gamma(\alpha_m)}
+        for isoform, index in isoform_indices.items():
+            log_gamma_alpha_prime_m = gammaln(alpha_prime[index])
+            log_gamma_alpha_m = gammaln(alpha[index])
+            elbo += log_gamma_alpha_prime_m - log_gamma_alpha_m
+
+        # Calculate the fourth component: \sum_{m=1}^{M} (\alpha_m - \alpha_m') \left( \exp_log_theta[isoform] \right)
+        for isoform, index in isoform_indices.items():
+            elbo += (alpha[index] - alpha_prime[index]) * exp_log_theta[isoform]
+
+        return elbo
 
     def update_alpha_prime(self, sample_key):
         """
@@ -289,9 +326,7 @@ class Expec_Max:
         isoform_indices = self.all_isoform_indices[sample_key]
 
         # Initialize all_alpha_prime
-        all_alpha_prime = [0.0] * len(all_alpha)
-        for i in range(len(all_alpha)):
-            all_alpha_prime[i] = all_alpha[i]
+        all_alpha_prime = all_alpha
 
         # Iterate over each read in all_Zri
         for read_key, isoform_dict in all_Zri.items():
@@ -302,21 +337,6 @@ class Expec_Max:
                 all_alpha_prime[index] += phi
 
         return all_alpha_prime
-
-    # def update_exp_theta(self, sample_key):
-    #     """
-    #     Calculate the expected value E_Q(theta)[theta_m] for a Dirichlet distribution.
-    #
-    #     Parameters:
-    #     alpha_prime (list or array): The alpha prime values for the isoforms.
-    #
-    #     Returns:
-    #     list: The expected theta values.
-    #     """
-    #     alpha_prime = self.all_alpha_prime[sample_key]
-    #     sum_alpha_prime = sum(alpha_prime)
-    #     expected_theta = [alpha_m / sum_alpha_prime for alpha_m in alpha_prime]
-    #     return expected_theta
 
     def update_exp_theta(self, sample_key):
         """
@@ -329,6 +349,8 @@ class Expec_Max:
         Returns:
         Counter: The expected theta values as a Counter.
         """
+        convergence = 0
+        theta_old = self.all_theta[sample_key]
         alpha_prime = self.all_alpha_prime[sample_key]
         isoform_indices = self.all_isoform_indices[sample_key]
         sum_alpha_prime = sum(alpha_prime)
@@ -337,34 +359,48 @@ class Expec_Max:
         for isoform, index in isoform_indices.items():
             expected_theta[isoform] = alpha_prime[index] / sum_alpha_prime
 
-        return expected_theta
+        if self.em_round > 0:
+            for ref_name in theta_old.keys():
+                convergence += abs(theta_old[ref_name] - expected_theta[ref_name])
+
+
+        return expected_theta, convergence
 
     def calculate_exp_log_theta_m(self, sample_key):
+
         """
-        Calculate E_Q(theta)[log(theta_m)] for each isoform m.
+        Calculate the expected log value E_Q(theta)[log(theta_m)] for a Dirichlet distribution.
+
+        Parameters:
+        alpha_prime (Counter): The alpha prime values for the isoforms.
+        isoform_indices (dict): Mapping of isoform names to their indices.
+
+        Returns:
+        Counter: The expected log theta values as a Counter.
         """
         alpha_prime = self.all_alpha_prime[sample_key]
         isoform_indices = self.all_isoform_indices[sample_key]
         sum_alpha_prime = np.sum(alpha_prime)
-        eq_log_theta_m = np.zeros_like(alpha_prime)
+        eq_log_theta_m = Counter()
 
         for isoform, index in isoform_indices.items():
-            eq_log_theta_m[index] = psi(alpha_prime[index]) - psi(sum_alpha_prime)
+            eq_log_theta_m[isoform] = psi(alpha_prime[index]) - psi(sum_alpha_prime)
 
         return eq_log_theta_m
 
-    def update_Phi_ri(self, sample_key, exp_log_theta_m):
+    def update_Phi_ri(self, sample_key):
+
         """
-        Update phi_nm using the equation:
-        phi_nm ∝ p_nm * exp(E_Q(theta)[log(theta_m)])
-        """
+           Update phi_nm using the equation:
+           phi_nm ∝ p_nm * exp(E_Q(theta)[log(theta_m)])
+           """
         updated_phi = {}
+        exp_log_theta_m = self.exp_log_theta[sample_key]
 
         for read, isoform_probs in self.all_read_iso_prob[sample_key].items():
             updated_phi[read] = {}
             for isoform, p_nm in isoform_probs.items():
-                index = self.all_isoform_indices[sample_key][isoform]
-                updated_phi[read][isoform] = p_nm * np.exp(exp_log_theta_m[index])
+                updated_phi[read][isoform] = p_nm * np.exp(exp_log_theta_m[isoform])
 
             # Normalize phi values for the current read
             total_phi = np.sum(list(updated_phi[read].values()))
@@ -395,21 +431,7 @@ class Expec_Max:
         for ref_name in abundance_dict.keys():
             abundance_dict[ref_name] = abundance_dict[ref_name] / total
 
-        all_alpha = [1.0] * len(abundance_dict)
-
-        # # Initialize all_alpha_prime
-        # all_alpha_prime = [0.0] * len(all_alpha)
-        # for i in range(len(all_alpha)):
-        #     all_alpha_prime[i] = all_alpha[i]
-        #
-        # # Iterate over each read in all_Zri
-        # for read_key, isoform_dict in all_Zri.items():
-        #     # Iterate over each isoform and its proportion (phi)
-        #     for isoform, phi in isoform_dict.items():
-        #         index = isoform_indices[isoform]
-        #         # Update alpha_prime for the isoform
-        #         all_alpha_prime[index] += phi
-        #         return abundance_dict, all_alpha, all_alpha_prime, isoform_indices
+        all_alpha = [self.alpha_initial] * len(abundance_dict)
 
         return abundance_dict, all_alpha, isoform_indices
 
@@ -556,7 +578,20 @@ class Expec_Max:
             for alignment in read:
                 for string in alignment.alignment_list:
                     compatibility_dict[read_name][string.rname] = 1 / len(alignment.alignment_list)
-                    read_isoform_prob[read_name][string.rname]= 1 / (ref_len_dict[string.rname] - string.align_len + 1)
+
+                    # Check for potential division by zero
+                    denominator = ref_len_dict[string.rname] - string.align_len + 1
+                    if denominator == 0:
+                        p_nm = np.nan  # This will trigger the NaN check below
+                    else:
+                        p_nm = 1 / denominator
+
+                    # Check if p_nm is NaN or less than 1
+                    if np.isnan(p_nm) or p_nm < 1:
+                        read_isoform_prob[read_name][string.rname] = 1
+                        print(f"read len {ref_len_dict[string.rname]}, isoform len {string.align_len}")
+                    else:
+                        read_isoform_prob[read_name][string.rname] = p_nm
         return compatibility_dict, read_isoform_prob
 
 

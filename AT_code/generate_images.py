@@ -72,14 +72,15 @@ def fraction_to_float(fraction_str):
             raise ValueError(f"Invalid fraction string: {fraction_str}")
 
 
-def spearman_corr(our_quant, sample):
+def spearman_corr_SIRV(file_path1, sample):
 
-    ground_truth = pd.read_csv('../../data/SIRV/E2_molarity.csv')
+    ground_truth = pd.read_csv('../../data/SIRV/SIRV_Shree/E2_molarity.csv')
     # Reset the index of our_quant so that the isoform names become a column
+    our_quant = pd.read_csv(file_path1, sep="\t")
     our_quant_reset = our_quant.reset_index()
 
     # Rename the columns accordingly
-    our_quant_reset.columns = ['transcript_name', 'other_column1', 'est_count', 'tpm']
+    #our_quant_reset.columns = ['transcript_name', 'other_column1', 'est_count', 'tpm']
 
     # Clean the isoform names in our_quant to match the naming convention in df2
     our_quant_reset['cleaned_name'] = our_quant_reset['transcript_name'].str.replace(r'\(\+\)|\(\-\)', '', regex=True)
@@ -154,7 +155,9 @@ def spearman_corr_generic(file_path1, file_path2):
         print("TPM columns missing or incorrectly named in one of the datasets.")
 
 
-output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/')
+# output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/')
+# SIRV_output = output_file+'output_SIRV_VIGD_sample2_aln_E2_2024_6_18_22_07_43.tsv'
+# spearman_corr_SIRV(SIRV_output, sample='2')
 
 # REP 2, big
 # file_path1 = output_file+'output_day0rep2_sample2_Day0_Pacbio_2024_4_27_15_14_44.tsv'
@@ -209,13 +212,13 @@ output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/')
 
 """ StringTie2 """
 # REP 1, small
-file_path1 = ('/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/StringTie_Illumina_Output/'
-              'stringTie_Day0_1_illumina_output.tsv')
-file_path2 = output_file+'Pac_smallDown_day0rep1_NC.tsv'
-
-# REP 2, small
-file_path1 = ('/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/StringTie_Illumina_Output/'
-              'stringTie_Day0_2_illumina_output.tsv')
-file_path2 = output_file+'Pac_smallDown_day0rep2_NC.tsv'
-
-spearman_corr_generic(file_path1, file_path2)
+# file_path1 = ('/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/StringTie_Illumina_Output/'
+#               'stringTie_Day0_1_illumina_output.tsv')
+# file_path2 = output_file+'Pac_smallDown_day0rep1_NC.tsv'
+#
+# # REP 2, small
+# file_path1 = ('/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/StringTie_Illumina_Output/'
+#               'stringTie_Day0_2_illumina_output.tsv')
+# file_path2 = output_file+'Pac_smallDown_day0rep2_NC.tsv'
+#
+# spearman_corr_generic(file_path1, file_path2)

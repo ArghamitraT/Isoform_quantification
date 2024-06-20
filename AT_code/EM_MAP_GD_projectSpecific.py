@@ -357,7 +357,6 @@ class Expec_Max:
             file_name = (self.count_file+'_'+sample+'_'+
                          self.file_names_list[indx].split('/')[-1].split('.')[0])
             file_name_timestamp = gen_img.create_image_name(file_name, format="")
-            # count_file = f"{self.count_file}_{sample}_{file_name}.tsv" if self.count_file else None
             count_file = f"{file_name_timestamp}.tsv" if self.count_file else None
             if count_file:
                 self.log.info(f"Write file for {sample}")
