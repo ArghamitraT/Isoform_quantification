@@ -16,6 +16,8 @@ from DirichletOptimizer import DirichletModel
 import numpy as np
 import generate_images as gen_img
 from scipy.special import psi, gammaln
+import time
+import pickle
 
 # Local imports
 from NanoCount.Read import Read
@@ -129,6 +131,8 @@ class Expec_Max:
 
         # Collect all alignments grouped by read name
         self.log.info("Parse Bam file and filter low quality alignments")
+        
+        start = time.time()
 
         #  (AT) UNCOMMENT
         # Loop over all file names provided and parses the reads with
@@ -139,6 +143,24 @@ class Expec_Max:
             sample_key = f'sample{index}'
             self.all_read_dicts[sample_key] = read_dict
             self.all_ref_len_dicts[sample_key] = ref_len_dict
+        
+        end = time.time()
+        interval = (end-start)/60
+        print(f"time: time to parse the reads {interval} min")
+
+        # Set the environment variables
+        # os.environ['PYDEVD_WARN_EVALUATION_TIMEOUT'] = '10'  # Increase timeout to 10 seconds
+        # os.environ['PYDEVD_THREAD_DUMP_ON_WARN_EVALUATION_TIMEOUT'] = 'true'
+        # os.environ['PYDEVD_UNBLOCK_THREADS_TIMEOUT'] = '10'  # Unblock threads after 10 seconds
+
+        # with open('pkl_files/Pac_illu_set1_read_dicts', 'wb') as file:
+        #     pickle.dump(self.all_read_dicts, file)
+        # with open('pkl_files/Pac_illu_set1_ref_len_dicts', 'wb') as file:
+        #     pickle.dump(self.all_ref_len_dicts, file)
+
+        # print("Data has been saved.")
+
+
 
         # (AT) COMMENT
         # because parsing takes a bit of time, saved couple of file to develop working code
@@ -160,7 +182,7 @@ class Expec_Max:
             self._write_bam()
 
         # Generate compatibility dict grouped by reads
-        self.log.info("Generate initial read/transcript compatibility index")
+        # self.log.info("Generate initial read/transcript compatibility index")
 
         """ EXPLANATION
             * Yri --> Binary Compatibility Matrix
@@ -188,43 +210,47 @@ class Expec_Max:
         alpha_history = []  # List to store alpha values at each iteration
         convergence_history = []  # List to store convergence values at each iteration
 
-        with tqdm(
-                unit=" rounds",
-                unit_scale=True,
-                desc="\tProgress",
-                disable=(quiet or verbose),
-        ) as pbar:
+        # with tqdm(
+        #         unit=" rounds",
+        #         unit_scale=True,
+        #         desc="\tProgress",
+        #         disable=(quiet or verbose),
+        # ) as pbar:
 
-            # Initialize the Dirichlet optimizer with the theta data
-            dirichlet_optimizer = DirichletModel(self.all_theta, self.all_isoform_indices, self.all_alpha, self.exp_log_theta)
+        # Initialize the Dirichlet optimizer with the theta data
+        dirichlet_optimizer = DirichletModel(self.all_theta, self.all_isoform_indices, self.all_alpha, self.exp_log_theta)
 
-            """ EM and Gradient descent """
-            # Iterate until convergence threshold or max EM round are reached
-            while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds:
-                self.convergence = 0
-                self.em_round += 1
+        """ EM and Gradient descent """
+        # Iterate until convergence threshold or max EM round are reached
+        while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds:
+            self.convergence = 0
+            self.em_round += 1
 
-                # EM
-                for sample_key in self.all_read_dicts:
-                    self.all_alpha_prime[sample_key] = self.update_alpha_prime(sample_key)
-                    self.exp_log_theta[sample_key] = self.calculate_exp_log_theta_m(sample_key)
-                    self.all_Phi_ri[sample_key] = self.update_Phi_ri(sample_key)
-                    self.all_theta[sample_key], convergence = self.update_exp_theta(sample_key)
-                    self.elbo[sample_key] = self.calculate_elbo(sample_key)
-                    self.convergence += convergence
-
-
-                # UPDATE ALPHA
-                dirichlet_optimizer.update_alpha()
-                self.convergence = self.convergence/len(self.all_alpha)
-                self.log.info("loop {}, convergence {} ".format(self.em_round, self.convergence))
+            # EM
+            sample_num = 0
+            for sample_key in self.all_read_dicts:
+                self.all_alpha_prime[sample_key] = self.update_alpha_prime(sample_key)
+                self.exp_log_theta[sample_key] = self.calculate_exp_log_theta_m(sample_key)
+                self.all_Phi_ri[sample_key] = self.update_Phi_ri(sample_key)
+                self.all_theta[sample_key], convergence = self.update_exp_theta(sample_key)
+                self.elbo[sample_key] = self.calculate_elbo(sample_key)
+                sample_num +=1
+                self.convergence += convergence
+                print(f"ELBO_sample_{sample_num} {self.elbo[sample_key]}")
+                print(f"Convergence_sample_{sample_num} {convergence}")
 
 
-                # store the values for downstream
-                # alpha_history.append(np.mean(self.alpha))
-                convergence_history.append(self.convergence)
-                pbar.update(1)
-                self.log.debug("EM Round: {} / Convergence value: {}".format(self.em_round, self.convergence))
+            # UPDATE ALPHA
+            dirichlet_optimizer.update_alpha()
+            self.convergence = self.convergence/len(self.all_alpha)
+            self.log.info("EM_loop {}".format(self.em_round))
+            self.log.info("EM_convergence {} ".format(self.convergence))
+
+            # store the values for downstream
+            # alpha_history.append(np.mean(self.alpha))
+            convergence_history.append(self.convergence)
+            # pbar.update(1)
+            self.log.debug("EM Round: {} / Convergence value: {}".format(self.em_round, self.convergence))
 
         self.log.info("Exit EM loop after {} rounds".format(self.em_round))
         self.log.info("Convergence value: {}".format(self.convergence))
@@ -589,7 +615,7 @@ class Expec_Max:
                     # Check if p_nm is NaN or less than 1
                     if np.isnan(p_nm) or p_nm < 1:
                         read_isoform_prob[read_name][string.rname] = 1
-                        print(f"read len {ref_len_dict[string.rname]}, isoform len {string.align_len}")
+                        #print(f"read len {ref_len_dict[string.rname]}, isoform len {string.align_len}")
                     else:
                         read_isoform_prob[read_name][string.rname] = p_nm
         return compatibility_dict, read_isoform_prob
@@ -621,15 +647,15 @@ class Expec_Max:
                     c["Discarded unmapped alignments"] += 1
                 elif alignment.is_reverse:
                     c["Discarded negative strand alignments"] += 1
-                elif not self.keep_suplementary and alignment.is_supplementary:
-                    c["Discarded supplementary alignments"] += 1
-                elif self.min_alignment_length > 0 and alignment.query_alignment_length < self.min_alignment_length:
-                    c["Discarded short alignments"] += 1
-                elif self.max_dist_3_prime >= 0 and alignment.reference_end <= ref_len_dict[
-                    alignment.reference_name] - self.max_dist_3_prime:
-                    c["Discarded alignment with invalid 3 prime end"] += 1
-                elif self.max_dist_5_prime >= 0 and alignment.reference_start >= self.max_dist_5_prime:
-                    c["Discarded alignment with invalid 5 prime end"] += 1
+                # elif not self.keep_suplementary and alignment.is_supplementary:
+                #     c["Discarded supplementary alignments"] += 1
+                # elif self.min_alignment_length > 0 and alignment.query_alignment_length < self.min_alignment_length:
+                #     c["Discarded short alignments"] += 1
+                # elif self.max_dist_3_prime >= 0 and alignment.reference_end <= ref_len_dict[
+                #     alignment.reference_name] - self.max_dist_3_prime:
+                #     c["Discarded alignment with invalid 3 prime end"] += 1
+                # elif self.max_dist_5_prime >= 0 and alignment.reference_start >= self.max_dist_5_prime:
+                #     c["Discarded alignment with invalid 5 prime end"] += 1
                 else:
                     c["Valid alignments"] += 1
                     read_dict[alignment.query_name].add_pysam_alignment(pysam_aligned_segment=alignment, read_idx=idx)

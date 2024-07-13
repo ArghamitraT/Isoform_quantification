@@ -21,15 +21,30 @@ class DirichletModel:
         return {sample_key: alpha.detach().numpy() for sample_key, alpha in
                 self.all_alpha.items()}, self.all_isoform_indices
 
-    def update_alpha(self):
+    def update_alpha(self, max_iterations=10, tolerance=1e-6):
         """
-        Gradient Descent of alpha considering all samples.
+        Gradient Descent of alpha considering all samples with convergence criteria.
+        :param max_iterations: int, maximum number of iterations to perform
+        :param tolerance: float, tolerance to determine convergence (stop if change in loss is below this threshold)
         """
-        self.optimizer.zero_grad()  # Clear the gradients from the previous step
-        log_likelihood = self.compute_log_likelihood_ExpLogTheta()
-        loss = -log_likelihood  # We want to maximize log likelihood, hence minimize the negative log likelihood
-        loss.backward()  # Compute the gradient of the loss w.r.t. the parameters (alpha)
-        self.optimizer.step()  # Perform a gradient descent step to update alpha
+        previous_loss = float('inf')  # Initialize previous loss as infinity for comparison
+        for iteration in range(max_iterations):
+            self.optimizer.zero_grad()  # Clear the gradients from the previous step
+            log_likelihood = self.compute_log_likelihood_ExpLogTheta()
+            loss = -log_likelihood  # We want to maximize log likelihood, hence minimize the negative log likelihood
+            loss.backward()  # Compute the gradient of the loss w.r.t. the parameters (alpha)
+            self.optimizer.step()  # Perform a gradient descent step to update alpha
+            
+            # Check for convergence: if the change in loss is less than the tolerance, stop the loop
+            if abs(previous_loss - loss.item()) < tolerance:
+                print(f"GD Convergence reached after {iteration + 1} iterations.")
+                break
+            previous_loss = loss.item()  # Update previous loss to current loss
+            
+            # Optionally, print the current loss every few iterations to monitor progress
+            #if iteration % 100 == 0:
+            print(f"GD_Iteration {iteration}")
+            print(f"GD_Current_Loss = {loss.item()}")
 
     def compute_log_likelihood(self):
         """
