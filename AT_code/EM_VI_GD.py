@@ -14,7 +14,6 @@ import hashlib
 import pickle
 from DirichletOptimizer import DirichletModel
 import numpy as np
-import generate_images as gen_img
 from scipy.special import psi, gammaln
 import time
 import pickle
@@ -40,7 +39,8 @@ class Expec_Max:
             sec_scoring_threshold: float = 0.95,
             sec_scoring_value: str = "alignment_score",
             convergence_target: float = 0.001,
-            max_em_rounds: int = 100,
+            max_em_rounds: int = 100, ##(AT)
+            #max_em_rounds: int = 3, ##(AT)
             extra_tx_info: bool = False,
             primary_score: str = "alignment_score",
             max_dist_3_prime: int = 50,
@@ -134,8 +134,8 @@ class Expec_Max:
         
         start = time.time()
 
-        #  (AT) UNCOMMENT
-        # Loop over all file names provided and parses the reads with
+        ##  (AT) UNCOMMENT
+        ## Loop over all file names provided and parses the reads with
         for index, file_name in enumerate(self.file_names_list, start=1):
             # Parse the BAM file
             read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
@@ -146,7 +146,7 @@ class Expec_Max:
         
         end = time.time()
         interval = (end-start)/60
-        print(f"time: time to parse the reads {interval} min")
+        print(f"time_parse {interval} min")
 
         # Set the environment variables
         # os.environ['PYDEVD_WARN_EVALUATION_TIMEOUT'] = '10'  # Increase timeout to 10 seconds
@@ -160,10 +160,7 @@ class Expec_Max:
 
         # print("Data has been saved.")
 
-
-
-        # (AT) COMMENT
-        # because parsing takes a bit of time, saved couple of file to develop working code
+        ## because parsing takes a bit of time, saved couple of file to develop working code
         # with open('read_dict_long.pkl', 'rb') as file:
         #     self.all_read_dicts['sample1'] = pickle.load(file)
         # with open('ref_len_dict_long.pkl', 'rb') as file:
@@ -176,6 +173,14 @@ class Expec_Max:
         #     self.all_read_dicts['sample2'] = pickle.load(file)
         # with open('pkl_files/ref_len_dict_short.pkl', 'rb') as file:
         #     self.all_ref_len_dicts['sample2'] = pickle.load(file)
+        # (AT)
+        # with open('/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/pkl_files/Pac_illu_set1_read_dicts.pkl', 'rb') as file:
+        #     self.all_read_dicts = pickle.load(file)
+        # with open('/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/pkl_files/Pac_illu_set1_ref_len_dicts.pkl', 'rb') as file:
+        #     self.all_ref_len_dicts = pickle.load(file)
+
+        # COMMENT
+        print("parsing done")
 
         if self.filter_bam_out:
             self.log.info("Write selected alignments to BAM file")
@@ -190,11 +195,18 @@ class Expec_Max:
             * Phi_ri --> Expectation of A (true asignment) matrix
             * n --> # of reads for each isoform
         """
+        
         # All the initial calculation
         for sample_key in self.all_read_dicts:
-            self.all_Phi_ri[sample_key], self.all_read_iso_prob[sample_key] = self.get_compatibility_modified(sample_key)
+            self.all_Yri[sample_key], self.all_read_iso_prob[sample_key] = self.get_compatibility_modified(sample_key)
             self.all_theta[sample_key], self.all_alpha[sample_key], self.all_isoform_indices[sample_key] \
-                = self.calculate_theta_and_alpha_prime_0(self.all_Phi_ri[sample_key])
+                = self.calculate_theta_and_alpha_prime_0(self.all_Yri[sample_key])
+            demo_phi = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key], self.all_read_iso_prob[sample_key])
+            self.all_Phi_ri[sample_key] = demo_phi
+
+
+         # COMMENT
+        print("Initiation")
 
         # find out the reads mathced to more than 1 isoform
         # more_than_one = {key: val for key, val in compatibility_dict_long.items() if len(val) > 1}
@@ -220,9 +232,11 @@ class Expec_Max:
         # Initialize the Dirichlet optimizer with the theta data
         dirichlet_optimizer = DirichletModel(self.all_theta, self.all_isoform_indices, self.all_alpha, self.exp_log_theta)
 
+
         """ EM and Gradient descent """
         # Iterate until convergence threshold or max EM round are reached
-        while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds:
+        while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: ## (AT)
+        #while self.em_round < self.max_em_rounds:
             self.convergence = 0
             self.em_round += 1
 
@@ -251,6 +265,11 @@ class Expec_Max:
             convergence_history.append(self.convergence)
             # pbar.update(1)
             self.log.debug("EM Round: {} / Convergence value: {}".format(self.em_round, self.convergence))
+        
+        end = time.time()
+        interval = (end-start)/60
+        print(f"time_EM {interval} min")
+
 
         self.log.info("Exit EM loop after {} rounds".format(self.em_round))
         self.log.info("Convergence value: {}".format(self.convergence))
@@ -290,7 +309,8 @@ class Expec_Max:
             # The output file could be named according to the sample
             file_name = (self.count_file + '_' + sample + '_' +
                          self.file_names_list[indx].split('/')[-1].split('.')[0])
-            file_name_timestamp = gen_img.create_image_name(file_name, format="")
+            
+            file_name_timestamp = self.create_image_name(file_name, format="")
             count_file = f"{file_name_timestamp}.tsv" if self.count_file else None
             if count_file:
                 self.log.info(f"Write file for {sample}")
@@ -301,6 +321,12 @@ class Expec_Max:
 
 
      # ~~~~~~~~~~~~~~NEW FUNCTIONS (AT)~~~~~~~~~~~~~~ #
+    def create_image_name(self, name, format=".png"):
+        crnt_tm = datetime.datetime.now()
+        image_name = (name+"_" + str(crnt_tm.year) + "_" + str(crnt_tm.month) + "_" + str(crnt_tm.day) + "_"
+                    + time.strftime("%H_%M_%S") + format)
+        return image_name
+
     def calculate_elbo(self, sample_key):
 
         # Extract necessary variables
@@ -518,13 +544,14 @@ class Expec_Max:
         return abundance_dict
 
 
-    def calculate_Z(self, old_compatibility_dict, theta):
+    def calculate_Z(self, old_compatibility_dict, theta, Pnm):
         """
         The EM assignment: Update read-transcript compatibility based on transcript abundances (expectation of A or the ture assignmen)
         """
         """ EXPLANATION:
             * Eqn 3 --> z_{ri}^{t=0} = {y_{ri} \theta_i^{t=0}} /
             {\sum_{i=1}^{I} y_{ri} \theta_i^{t=0}} """
+        
 
         Z_ri = defaultdict(dict)
 
@@ -533,10 +560,18 @@ class Expec_Max:
             # Calculate the denominator for the Z_ri formula
             denominator = sum(Y_ri * theta[isoform] for isoform, Y_ri in isoform_values.items())
             # Compute Z_ri for each isoform associated with the read
+            total = 0
             Z_ri[read] = {}
             for isoform, Y_ri in isoform_values.items():
+                p_nm = Pnm[read][isoform]
                 theta_i = theta[isoform]  # Get theta for isoform
-                Z_ri[read][isoform] = Y_ri * theta_i / denominator  # Calculate Z_ri according to the formula
+                temp_val = p_nm * theta_i / denominator
+                Z_ri[read][isoform] = temp_val  # Calculate Z_ri according to the formula
+                total +=temp_val
+            # Normalize phi values for the current read
+            for isoform in Z_ri[read]:
+                Z_ri[read][isoform] /= total
+        
         return Z_ri
 
 
@@ -566,13 +601,13 @@ class Expec_Max:
 
         return abundance_dict, isoform_indices
 
-    # (AT)
+    
     def hash_key(self, elements):
         # Create a stable hash of the sorted elements using a cryptographic hash function
         # Convert the elements tuple to a string and encode to bytes before hashing
         return hashlib.sha256(str(sorted(elements)).encode('utf-8')).hexdigest()
 
-    # (AT)
+    
     def is_iterable(self, obj):
         """
         Check if obj is iterable but not a string.
@@ -593,6 +628,7 @@ class Expec_Max:
         read_dict = self.all_read_dicts[sample_key]
         ref_len_dict = self.all_ref_len_dicts[sample_key]
 
+        read_len_dispro = 0
         for read_name, read in read_dict.items():
             # Check if read is iterable and not a string; if not, make it a list
             if not self.is_iterable(read):
@@ -601,6 +637,7 @@ class Expec_Max:
             """ EXPLANATION:
             * if the read length is k and isoform length is n, there are n-k+1 positions the read can come from.
             so we need to multiply the score by (1/n-k+1). This is the way to incorporate isoform length """
+            
             for alignment in read:
                 for string in alignment.alignment_list:
                     compatibility_dict[read_name][string.rname] = 1 / len(alignment.alignment_list)
@@ -613,11 +650,15 @@ class Expec_Max:
                         p_nm = 1 / denominator
 
                     # Check if p_nm is NaN or less than 1
-                    if np.isnan(p_nm) or p_nm < 1:
+                    
+                    if np.isnan(p_nm) or p_nm < 0:
                         read_isoform_prob[read_name][string.rname] = 1
-                        #print(f"read len {ref_len_dict[string.rname]}, isoform len {string.align_len}")
+                        # print(f"read len {ref_len_dict[string.rname]}, isoform len {string.align_len}") #(AT)
+                        read_len_dispro+=1
+
                     else:
                         read_isoform_prob[read_name][string.rname] = p_nm
+        print(f"total_read_len_longer_than_reflen {read_len_dispro}")
         return compatibility_dict, read_isoform_prob
 
 
@@ -710,7 +751,6 @@ class Expec_Max:
         # Write filtered reads counters
         log_dict(d=c, logger=self.log.info, header="Summary of reads filtered")
 
-        # (AT)
         return filtered_read_dict, ref_len_dict
 
     def _write_bam(self):

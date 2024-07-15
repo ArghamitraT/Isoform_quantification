@@ -154,10 +154,12 @@ def spearman_corr_generic(file_path1, file_path2):
     else:
         print("TPM columns missing or incorrectly named in one of the datasets.")
 
-
-# output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/')
-# SIRV_output = output_file+'output_SIRV_VIGD_sample2_aln_E2_2024_6_18_22_07_43.tsv'
+# SIRV_output = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmnt_2024_07_15__14_27_36/files/output_files/output_SIRV_VIGD_15947722_sample2_aln_E2_2024_7_15_14_30_45.tsv'
 # spearman_corr_SIRV(SIRV_output, sample='2')
+
+output_file = os.path.join(os.getcwd(), '../../files/results/single_run/')
+SIRV_output = output_file+'output_SIRV_VIGD_sample2_aln_E2_2024_7_15_15_17_56.tsv'
+spearman_corr_SIRV(SIRV_output, sample='2')
 
 # REP 2, big
 # file_path1 = output_file+'output_day0rep2_sample2_Day0_Pacbio_2024_4_27_15_14_44.tsv'
