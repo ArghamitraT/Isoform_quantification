@@ -4,15 +4,16 @@ import os
 import time
 import matplotlib.pyplot as plt
 
-# Function to find log file path
-def find_log_file_path(main_dir, experiment_file):
+# Function to find log file paths
+def find_log_file_paths(main_dir, experiment_file):
     final_result_dir = os.path.join(main_dir, experiment_file, 'files/output_files/')
+    log_file_paths = []
     for file in os.listdir(final_result_dir):
         if file.startswith('out_main_') and not file.endswith('.csv'):
-            return os.path.join(final_result_dir, file)
-    return None
+            log_file_paths.append(os.path.join(final_result_dir, file))
+    return log_file_paths
 
-# Function to parse the log file
+# Function to parse a single log file
 def parse_log_file(log_file_path):
     with open(log_file_path, 'r') as file:
         lines = file.readlines()
@@ -74,7 +75,7 @@ def save_dataframe_to_csv(df, log_file_path):
     return output_file_path
 
 # Function to plot results
-def plot_results(df, experiment_file, main_dir):
+def plot_results(df, experiment_file, main_dir, name):
     # Create a folder named 'figures'
     figure_dir = os.path.join(main_dir, experiment_file, 'figures')
     os.makedirs(figure_dir, exist_ok=True)
@@ -98,30 +99,33 @@ def plot_results(df, experiment_file, main_dir):
 
     # Save the figure
     timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
-    plt.savefig(os.path.join(figure_dir, 'all_plots' + timestamp + '.png'))
+    plt.savefig(os.path.join(figure_dir, name + timestamp + '.png'))
 
     # Show the plot
     plt.show()
 
 # Main function to run the entire process
 def main():
-    experiment_file = 'exprmnt_2024_07_15__14_27_36'
+    experiment_file = 'exprmnt_2024_07_15__15_38_55'
     main_dir = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/files/results/'
 
-    # Find the log file path
-    log_file_path = find_log_file_path(main_dir, experiment_file)
-    if not log_file_path:
+    # Find all log file paths
+    log_file_paths = find_log_file_paths(main_dir, experiment_file)
+    if not log_file_paths:
         print("No file found matching the format 'out_main_'")
         return
 
-    # Parse the log file
-    df = parse_log_file(log_file_path)
+    # Parse each log file and combine the data
+    combined_df = pd.DataFrame()
+    for log_file_path in log_file_paths:
+        df = parse_log_file(log_file_path)
+        #combined_df = pd.concat([combined_df, df], ignore_index=True)
 
-    # Save the parsed data to a CSV file
-    csv_file_path = save_dataframe_to_csv(df, log_file_path)
+        # Save the parsed data to a CSV file
+        csv_file_path = save_dataframe_to_csv(df, log_file_path)
 
-    # Plot the results
-    plot_results(df, experiment_file, main_dir)
+        # Plot the results
+        plot_results(df, experiment_file, main_dir, log_file_path.split('/')[-1])
 
 # Run the main function
 if __name__ == "__main__":

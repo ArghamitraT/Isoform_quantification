@@ -5,6 +5,9 @@ import pandas as pd
 import datetime
 import time
 import os
+import re
+from collections import defaultdict
+
 
 def create_image_name(name, format=".png"):
 
@@ -120,7 +123,15 @@ def fraction_to_float_gen(value):
 def split_transcript_name(transcript):
     return transcript.split('|')[0]
 
-def spearman_corr_generic(file_path1, file_path2):
+def spearman_corr_generic(file_path1, file_path2, directory):
+    def split_transcript_name(name):
+        # Add your implementation for split_transcript_name function
+        return name
+
+    def fraction_to_float_gen(value):
+        # Add your implementation for fraction_to_float_gen function
+        return value
+
     # Load the datasets
     our_quant = pd.read_csv(file_path1, sep="\t")
     ground_truth = pd.read_csv(file_path2, sep="\t")
@@ -128,13 +139,6 @@ def spearman_corr_generic(file_path1, file_path2):
     # Apply the function to the 'transcript_name' column of your DataFrame
     our_quant['transcript_name'] = our_quant['transcript_name'].apply(split_transcript_name)
     ground_truth['transcript_name'] = ground_truth['transcript_name'].apply(split_transcript_name)
-
-    # Reset the index in our_quant so that the isoform names become a column
-    # our_quant_reset = our_quant.reset_index()
-
-    # Clean the isoform names in both datasets to match the naming convention
-    # our_quant_reset['cleaned_name'] = our_quant_reset['transcript_name'].str.replace(r'\(\+\)|\(\-\)', '', regex=True)
-    # ground_truth['cleaned_name'] = ground_truth['Name'].str.replace(r'\(\+\)|\(\-\)', '', regex=True)
 
     # Find common isoforms
     common_isoforms = pd.merge(our_quant, ground_truth, on='transcript_name', suffixes=('_quant', '_truth'))
@@ -147,80 +151,76 @@ def spearman_corr_generic(file_path1, file_path2):
         # Calculate Spearman's correlation using the matched TPM lists
         correlation, p_value = spearmanr(common_isoforms['tpm_quant'], common_isoforms['tpm_truth'])
 
+        # Extract the relevant parts from file names
+        file_name1 = file_path1.split('/')[-1]
+        file_name2 = file_path2.split('/')[-1]
+        part1 = "_".join(file_name1.split('_')[5:10])
+        part2 = "_".join(file_name2.split('_')[5:8])
+
+        formatted_output = (
+            f"Spearman correlation: {part1} and {part2} is {correlation:.6f}"
+        )
         # Output the results
-        print(
-            f"Spearman correlation coefficient between {file_path1.split('/')[-1]} & {file_path2.split('/')[-1]}: {correlation}")
+        timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
+        output_file = directory+f'corr_results{timestamp}.txt'
+        with open(output_file, 'a') as f:
+            f.write(formatted_output + '\n')
+
+        print(formatted_output)
         print(f"P-value for correlation: {p_value}")
     else:
         print("TPM columns missing or incorrectly named in one of the datasets.")
 
+
 # SIRV_output = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmnt_2024_07_15__14_27_36/files/output_files/output_SIRV_VIGD_15947722_sample2_aln_E2_2024_7_15_14_30_45.tsv'
 # spearman_corr_SIRV(SIRV_output, sample='2')
 
-output_file = os.path.join(os.getcwd(), '../../files/results/single_run/')
-SIRV_output = output_file+'output_SIRV_VIGD_sample2_aln_E2_2024_7_15_15_17_56.tsv'
-spearman_corr_SIRV(SIRV_output, sample='2')
+# output_file = os.path.join(os.getcwd(), '../../files/results/single_run/')
+# SIRV_output = output_file+'output_SIRV_VIGD_sample2_aln_E2_2024_7_15_15_17_56.tsv'
+# spearman_corr_SIRV(SIRV_output, sample='2')
 
-# REP 2, big
-# file_path1 = output_file+'output_day0rep2_sample2_Day0_Pacbio_2024_4_27_15_14_44.tsv'
-# file_path2 = output_file+'output_day0rep2_sample1_Day0_illumina_2024_4_27_15_14_13.tsv'
+def pair_files(directory, criteria='replica'):
+    # Dictionary to store the files based on pairing criteria
+    file_pairs = defaultdict(list)
 
-# REP 1, big
-# file_path1 = output_file+'output_day0rep1_sample1_Day0_illumina_2024_4_27_14_54_52.tsv'
-# file_path2 = output_file+'output_day0rep1_sample2_Day0_Pacbio_2024_4_27_14_55_49.tsv'
+    # Regular expression to match the files
+    file_pattern = re.compile(r'(.*)_(\d{2})_(long|short)(.*)')
 
-# REP 2, small
-# file_path1 = output_file+'output_day0rep2_sample2_Day0_2_Pacbio_2024_4_26_20_47_51.tsv'
-# file_path2 = output_file+'output_day0rep2_sample1_Day0_1_illumina_2024_4_26_20_47_11.tsv'
+    # List all files in the directory
+    for file in os.listdir(directory):
+        match = file_pattern.match(file)
+        if match:
+            prefix, day_replica, length, suffix = match.groups()
+            if criteria == 'day':
+                key = day_replica[:1]  # Use day (first digit)
+            elif criteria == 'replica':
+                key = day_replica[1]  # Use replica (second digit)
+            elif criteria == 'alignment':
+                key = prefix + suffix  # Use prefix and suffix (alignment)
+            else:
+                raise ValueError("Criteria must be 'day', 'replica', or 'alignment'")
+            file_pairs[key].append(file)
 
-# REP 1, small
-# file_path1 = output_file+'output_day0rep1_sample2_Day0_2_Pacbio_2024_4_26_20_11_23.tsv'
-# file_path2 = output_file+'output_day0rep1_sample1_Day0_1_illumina_2024_4_26_20_11_17.tsv'
+    # Create the pairs
+    paired_files = []
+    for key, files in file_pairs.items():
+        long_files = [f for f in files if 'long' in f]
+        short_files = [f for f in files if 'short' in f]
+        for long_file in long_files:
+            for short_file in short_files:
+                paired_files.append((long_file, short_file))
 
-####### cross replicate #########
-# REP 1 small
-# file_path1 = output_file+'output_IlluRep1_PacRep2_sample1_Day0_1_illumina_2024_4_27_20_48_19.tsv'
-# file_path2 = output_file+'output_IlluRep2_PacRep1_sample2_Day0_2_Pacbio_2024_4_27_20_43_04.tsv'
-
-# REP 2 small
-# file_path1 = output_file+'output_IlluRep2_PacRep1_sample1_Day0_1_illumina_2024_4_27_20_43_03.tsv'
-# file_path2 = output_file+'output_IlluRep1_PacRep2_sample2_Day0_2_Pacbio_2024_4_27_20_48_19.tsv'
+    return paired_files
 
 
-# REP 1 big
-# file_path1 = output_file+'output_IlluRep1_PacRep2_BIG_sample1_Day0_1_illumina_2024_4_27_21_04_37.tsv'
-# file_path2 = output_file+'output_IlluRep2_PacRep1_BIG_sample2_Day0_2_Pacbio_2024_4_27_21_18_20.tsv'
+# Example usage
+if __name__ == "__main__":
+    experiment_file = 'exprmnt_2024_07_15__15_38_55'
+    main_dir = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/files/results/'
+    directory = os.path.join(main_dir, experiment_file, 'files/output_files/')
+    criteria = 'replica'  # Change to 'day', 'replica', or 'alignment' as needed
+    paired_files = pair_files(directory, criteria)
 
-# REP 2 small
-# file_path1 = output_file+'output_IlluRep2_PacRep1_BIG_sample1_Day0_1_illumina_2024_4_27_21_18_19.tsv'
-# file_path2 = output_file+'output_IlluRep1_PacRep2_BIG_sample2_Day0_2_Pacbio_2024_4_27_21_04_38.tsv'
-
-""" NanoCount """
-# REP 2, big
-# file_path1 = output_file+'Illu_day0rep2_NC.tsv'
-# file_path2 = output_file+'Pac_bigDown_day0rep2_NC.tsv'
-
-# # REP 1, big
-# file_path1 = output_file+'Illu_day0rep1_NC.tsv'
-# file_path2 = output_file+'Pac_bigDown_day0rep1_NC.tsv'
-
-# REP 1, small
-# file_path1 = output_file+'Illu_day0rep1_NC.tsv'
-# file_path2 = output_file+'Pac_smallDown_day0rep1_NC.tsv'
-
-# REP 2, small
-# file_path1 = output_file+'Illu_day0rep2_NC.tsv'
-# file_path2 = output_file+'Pac_smallDown_day0rep2_NC.tsv'
-
-""" StringTie2 """
-# REP 1, small
-# file_path1 = ('/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/StringTie_Illumina_Output/'
-#               'stringTie_Day0_1_illumina_output.tsv')
-# file_path2 = output_file+'Pac_smallDown_day0rep1_NC.tsv'
-#
-# # REP 2, small
-# file_path1 = ('/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/CU_courses/Spring_24/CBMF4761/Project/RNA_Splicing/data/StringTie_Illumina_Output/'
-#               'stringTie_Day0_2_illumina_output.tsv')
-# file_path2 = output_file+'Pac_smallDown_day0rep2_NC.tsv'
-#
-# spearman_corr_generic(file_path1, file_path2)
+    for pair in paired_files:
+        #print(pair)
+        spearman_corr_generic(directory+pair[0], directory+pair[1], directory)

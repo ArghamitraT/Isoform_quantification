@@ -29,9 +29,9 @@ def convert_text_to_counter(file_path):
 
     return isoform_counter
 
-with open('theta_illumina_day0_rep1.pkl', 'rb') as file:
+with open('pkl_files/theta_illumina_day0_rep1.pkl', 'rb') as file:
      theta_sample1 = pickle.load(file)
-with open('theta_PacBio_day0_rep1.pkl', 'rb') as file:
+with open('pkl_files/theta_PacBio_day0_rep1.pkl', 'rb') as file:
     theta_sample2 = pickle.load(file)
 # theta_sample1 = Counter({
 #     'PB.1.1': 12,

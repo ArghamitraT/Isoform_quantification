@@ -5,7 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr
-import generate_images as gen_img
+import generate_corr as gen_img
 
 """
 def fraction_to_float(fraction_str):
