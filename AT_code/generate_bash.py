@@ -102,6 +102,8 @@ def get_file_name(kind, l0=0, l1=0, l2=0, l3=0, ext=True):
 
 """ **CHANGE (AT)** THE MAIN FOLDER NAME """
 #main_data_dir = create_job_dir(dir = "", fold_name="terra_output_afterMLSB_ASA")
+
+# **** the first element should be LR, the second should be SR ****
 samples_file_names = [['ds_5_aln_01_long.bam', 'aln_02_short.bam'], ['ds_5_aln_02_long.bam', 'aln_01_short.bam']]
 #samples_file_names = [['ds_5_aln_01_long.bam', 'aln_02_short.bam']]
 other_script_names = ['EM_VI_GD.py', 'DirichletOptimizer.py']

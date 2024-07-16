@@ -12,12 +12,12 @@ output_file_default = os.path.join(os.getcwd(), '../../files/results/single_run/
 parser = argparse.ArgumentParser(description="Process BAM files and output results.")
 parser.add_argument("--output_path", type=str, default=output_file_default,
                     help="Path for the output file. Default is '../../files/results/single_run/'.")
-parser.add_argument("--sample1", type=str, help="Sample1 file name.")
-parser.add_argument("--sample2", type=str, help="Sample2 file name.")
+# parser.add_argument("--sample1", type=str, help="Sample1 file name.")
+# parser.add_argument("--sample2", type=str, help="Sample2 file name.")
 
 ## (AT)
-# parser.add_argument("--sample1", type=str, default='ds_5_aln_01_long.bam', help="Sample1 file name.")
-# parser.add_argument("--sample2", type=str, default='aln_02_short.bam', help="Sample2 file name.")
+parser.add_argument("--sample1", type=str, default='ds_5_aln_02_long.bam', help="Sample1 (LR) file name.")
+parser.add_argument("--sample2", type=str, default='aln_01_short.bam', help="Sample2 (SR) file name.")
 
 # Parse the arguments
 args = parser.parse_args()
