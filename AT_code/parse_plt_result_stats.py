@@ -106,7 +106,7 @@ def plot_results(df, experiment_file, main_dir, name):
 
 # Main function to run the entire process
 def main():
-    experiment_file = 'exprmnt_2024_07_15__15_38_55'
+    experiment_file = 'exprmnt_2024_07_16__12_46_32'
     main_dir = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/files/results/'
 
     # Find all log file paths

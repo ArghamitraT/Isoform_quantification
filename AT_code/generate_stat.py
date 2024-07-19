@@ -10,6 +10,7 @@ from collections import defaultdict
 from scipy.interpolate import UnivariateSpline
 import seaborn as sns
 from scipy.integrate import trapz
+import sys
 
 
 def create_image_name(name, format=".png"):
@@ -141,31 +142,32 @@ def csv_tpm_processing(file_path1, file_path2, suffixes=('_quant', '_truth')):
 
     return common_isoforms
 
-def spearman_corr_generic(file_path1, file_path2, directory):
+def format_file_name(file_path1, file_path2, type):
+    file_name1 = file_path1.split('/')[-1]
+    file_name2 = file_path2.split('/')[-1]
+    if type == 'long':
+        part1 = "_".join(file_name1.split('_')[3:10])
+        part2 = "_".join(file_name2.split('_')[3:10])
+    else:
+        part1 = "_".join(file_name1.split('_')[3:8])
+        part2 = "_".join(file_name2.split('_')[3:8])
 
+    print()
+    return part1, part2
+def spearman_corr_generic(file_path1, file_path2, log_file, type):
     common_isoforms = csv_tpm_processing(file_path1, file_path2)
 
-    # Ensure both datasets have TPM values in the respective columns named accurately
     if 'tpm_quant' in common_isoforms and 'tpm_truth' in common_isoforms:
-        # Convert any fractional notation in TPM values from ground_truth to float if necessary
         common_isoforms['tpm_truth'] = common_isoforms['tpm_truth'].apply(fraction_to_float_gen)
-
-        # Calculate Spearman's correlation using the matched TPM lists
         correlation, p_value = spearmanr(common_isoforms['tpm_quant'], common_isoforms['tpm_truth'])
 
-        # Extract the relevant parts from file names
-        file_name1 = file_path1.split('/')[-1]
-        file_name2 = file_path2.split('/')[-1]
-        part1 = "_".join(file_name1.split('_')[5:10])
-        part2 = "_".join(file_name2.split('_')[5:8])
+        part1, part2 = format_file_name(file_path1, file_path2, type)
 
         formatted_output = (
-            f"Spearman correlation: {part1} and {part2} is {correlation:.6f}"
+
+            f"{part1} and {part2}.\nSpearman correlation: {correlation:.6f}"
         )
-        # Output the results
-        timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
-        output_file = directory+f'corr_results{timestamp}.txt'
-        with open(output_file, 'a') as f:
+        with open(log_file, 'a') as f:
             f.write(formatted_output + '\n')
 
         print(formatted_output)
@@ -174,174 +176,107 @@ def spearman_corr_generic(file_path1, file_path2, directory):
         print("TPM columns missing or incorrectly named in one of the datasets.")
 
 
-# SIRV_output = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmnt_2024_07_15__14_27_36/files/output_files/output_SIRV_VIGD_15947722_sample2_aln_E2_2024_7_15_14_30_45.tsv'
-# spearman_corr_SIRV(SIRV_output, sample='2')
-
-# output_file = os.path.join(os.getcwd(), '../../files/results/single_run/')
-# SIRV_output = output_file+'output_SIRV_VIGD_sample2_aln_E2_2024_7_15_15_17_56.tsv'
-# spearman_corr_SIRV(SIRV_output, sample='2')
-
-def pair_files(directory, criteria='replica'):
-    # Dictionary to store the files based on pairing criteria
-    file_pairs = defaultdict(list)
+def pair_files(directory):
+    # Dictionary to store the files based on downsampling percentage and length type
+    long_file_pairs = defaultdict(list)
+    short_file_pairs = defaultdict(list)
 
     # Regular expression to match the files
-    file_pattern = re.compile(r'(.*)_(\d{2})_(long|short)(.*)')
+    file_pattern = re.compile(r'(.*)_ds_(\d+)_aln_(\d{2})_(long|short)(.*)|(.*)_aln_(\d{2})_(long|short)(.*)')
 
     # List all files in the directory
     for file in os.listdir(directory):
         match = file_pattern.match(file)
         if match:
-            prefix, day_replica, length, suffix = match.groups()
-            if criteria == 'day':
-                key = day_replica[:1]  # Use day (first digit)
-            elif criteria == 'replica':
-                key = day_replica[1]  # Use replica (second digit)
-            elif criteria == 'length':
-                key = length  # Use prefix and suffix (alignment)
-            else:
-                raise ValueError("Criteria must be 'day', 'replica', or 'alignment'")
-            file_pairs[key].append(file)
+            if match.groups()[1]:  # Matches pattern with downsampling
+                prefix, ds_percentage, aln_replica, length, suffix = match.groups()[:5]
+                key = (ds_percentage, length)
+                long_file_pairs[key].append((file, aln_replica))
+            else:  # Matches pattern without downsampling
+                prefix, aln_replica, length, suffix = match.groups()[5:]
+                token = re.search(r'VIGD_(\d+)', prefix).group(1)
+                key = (token)
+                short_file_pairs[key].append((file, aln_replica))
 
-    # Create the pairs
+    # Create long read pairs
     paired_files = []
-    if criteria == 'replica':
-        for key, files in file_pairs.items():
-            long_files = [f for f in files if 'long' in f]
-            short_files = [f for f in files if 'short' in f]
-            for long_file in long_files:
-                for short_file in short_files:
-                    paired_files.append((long_file, short_file))
-    elif criteria == 'length':
-        for key, files in file_pairs.items():
-            paired_files.append((files[0], files[1]))
-        print()
+    valid_tokens = set()
+    for key, files in long_file_pairs.items():
+        paired_files.append((files[0][0], files[1][0]))
+        sr_file1 = short_file_pairs[files[0][0].split('_')[3]][0][0]
+        sr_file2 = short_file_pairs[files[1][0].split('_')[3]][0][0]
+        paired_files.append((sr_file1, sr_file2))
 
     return paired_files
 
+
+
 # Function to calculate CV
-def calculate_cv(data, type):
-    if type == 'long':
-        colm_name = 'long'
-    else:
-        colm_name = 'short'
+def calculate_cv(data, type, log_file):
+    colm_name = 'long' if type == 'long' else 'short'
     data_log = np.log(data[[f'tpm_{colm_name}Rep1', f'tpm_{colm_name}Rep2']] + 1)
     data['mean_abundance'] = data_log[[f'tpm_{colm_name}Rep1', f'tpm_{colm_name}Rep2']].mean(axis=1)
     data['std_abundance'] = data_log[[f'tpm_{colm_name}Rep1', f'tpm_{colm_name}Rep2']].std(axis=1)
-    CV_ig  = data['std_abundance'] / data['mean_abundance']
+    CV_ig = data['std_abundance'] / data['mean_abundance']
     data['CV'] = CV_ig
 
     CV_ig_squared = CV_ig ** 2
     IM = np.sqrt(CV_ig_squared.mean())
 
-    # Calculate ACVC (assuming equal intervals in abundance for simplicity)
     sorted_u_ig = data['mean_abundance'].sort_values()
     sorted_CV_ig = data['CV'].loc[sorted_u_ig.index]
 
     ACVC = np.trapz(sorted_CV_ig, x=sorted_u_ig)
-    print(f"IM {IM}, ACVC {ACVC}")
+    result = f"IM {IM}, ACVC {ACVC}\n"
+    with open(log_file, 'a') as f:
+        f.write(result)
+    print(result)
 
     return data
 
 def calculate_acvc(cv_values, abundance):
     return trapz(cv_values, abundance)
 
-def calculate_im_acvc(rep1, rep2, directory, type='long'):
+def calculate_im_acvc(rep1, rep2, directory, log_file, type='long'):
 
     if type == 'long':
         rep1_data = csv_tpm_processing(directory+rep1, directory+rep2, suffixes=('_longRep1', '_longRep2'))
     else:
         rep1_data = csv_tpm_processing(directory+rep1, directory+rep2, suffixes=('_shortRep1', '_shortRep2'))
 
-    # Calculate CV for each replicate
-    rep1_data = calculate_cv(rep1_data, type=type)
-
-
-    # Sort data by mean abundance for plotting
+    rep1_data = calculate_cv(rep1_data, type=type, log_file=log_file)
     rep1_data_sorted = rep1_data.sort_values('mean_abundance')
 
-    # Box Plot for IM
-    plt.figure(figsize=(8, 6))
-    sns.boxplot(y='CV', data=rep1_data_sorted, palette="Set2", boxprops=dict(alpha=0.5))
-    #sns.stripplot(y='CV', data=rep1_data_sorted, jitter=True, linewidth=1, palette="Set2")
-    plt.title('Box Plot with Scatter Overlay for IM')
-    plt.ylabel('IM')
-    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-    plt.ylim(0, 1.5)  # Adjust the y-axis limit based on your data range
+    part1, part2 = format_file_name(rep1, rep2, type)
+
+    # Split the path into parts
+    path_parts = directory.split('/')
+    # Remove the last two parts ('files' and 'output_files')
+    new_path_parts = path_parts[:-3]
+    # Append 'figures' to the path
+    new_path_parts.append('figures')
+    # Join the parts to form the new path
+    figure_dir = '/'.join(new_path_parts)
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+
+    sns.boxplot(y='CV', data=rep1_data_sorted, palette="Set2", ax=axes[0], boxprops=dict(alpha=0.5))
+    axes[0].set_title('Box Plot for CV')
+    axes[0].set_ylabel('CV')
+    axes[0].grid(True, which='both', linestyle='--', linewidth=0.5)
+    axes[0].set_ylim(0, 1.5)
+
+    axes[1].plot(rep1_data_sorted['mean_abundance'], rep1_data_sorted['CV'], 'o')
+    axes[1].set_xlabel('Transcript abundance (log2(TPM+1))')
+    axes[1].set_ylabel('CV')
+    axes[1].set_title('CV vs Transcript Abundance')
+    axes[1].set_ylim(0, 1.5)
+    axes[1].set_xlim(0, 10)
+    plt.tight_layout()
+    plt.title(f"stats for {part1} and {part2}")
+    timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
+    plt.savefig(os.path.join(figure_dir, create_image_name(f"IM_CV_{type}" + timestamp + '.png')))
     plt.show()
-    # Plot
-    plt.plot(rep1_data['mean_abundance'], rep1_data['CV'], 'o')
-    plt.xlabel('Transcript abundance (log2(TPM+1))')
-    plt.ylabel('CV')
-    plt.title('CV vs Transcript Abundance')
-    plt.ylim(0, 1.5)
-    plt.xlim(0, 10)
-    plt.legend()
-    plt.show()
-    print()
-
-    # Log2-transform abundance estimates
-    data_log2 = np.log2(rep1_data_sorted[[f'tpm_{type}Rep1', f'tpm_{type}Rep2']] - 1)
-
-    # Calculate mean and standard deviation
-    mean_abundance = data_log2.mean(axis=1)
-    std_abundance = data_log2.std(axis=1)
-
-    # Calculate CV
-    CV = std_abundance / mean_abundance
-
-    # Plot
-    plt.plot(mean_abundance, CV, 'o')
-    plt.xlabel('Transcript abundance (log2(TPM-1))')
-    plt.ylabel('CV')
-    plt.title('CV vs Transcript Abundance')
-    plt.ylim(0, 1.5)
-    plt.xlim(0, 10)
-    plt.legend()
-    plt.show()
-    print()
-
-    # # Plot
-    # plt.plot(mean_abundance, rep1_data['CV'], 'o')
-    # plt.xlabel('Transcript abundance (log2(TPM-1))')
-    # plt.ylabel('CV')
-    # plt.title('CV vs Transcript Abundance')
-    # plt.ylim(0, 1.5)
-    # plt.xlim(0, 10)
-    # plt.legend()
-    # plt.show()
-    # print()
-
-    # # Log2-transform abundance estimates
-    # data_log2 = np.log2(rep1_data_sorted[[f'tpm_{type}Rep1', f'tpm_{type}Rep2']] - 1)
-    #
-    # # Calculate mean and standard deviation
-    # mean_abundance = data_log2.mean(axis=1)
-    # std_abundance = data_log2.std(axis=1)
-    #
-    # # Calculate CV
-    # CV = std_abundance / mean_abundance
-
-
-
-    # # Smooth the CV curves using a spline
-    # rep1_spline = UnivariateSpline(np.log(rep1_data_sorted['mean_abundance']), rep1_data_sorted['CV'], s=1)
-    #
-    # # Generate smooth CV values for plotting
-    # rep1_smooth_CV = rep1_spline(np.log(rep1_data_sorted['mean_abundance']))
-    #
-    # # Plot the CV curves
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(rep1_data_sorted['mean_abundance'], rep1_smooth_CV, label='LR Rep 1 and 2 CV', color='blue')
-    # #plt.plot(rep2_data_sorted['mean_abundance'], rep2_smooth_CV, label='Replicate 2 CV', color='red')
-    # plt.xscale('log')
-    # plt.yscale('log')
-    # plt.xlabel('Transcript Abundance (TPM)')
-    # plt.ylabel('Coefficient of Variation (CV)')
-    # plt.title('CV vs. Transcript Abundance for Long Read and Short Read Combined')
-    # plt.legend()
-    # plt.grid(True)
-    # plt.show()
 
 
 def merge_csv_files(file1, file2, output_dir):
@@ -372,29 +307,30 @@ def merge_csv_files(file1, file2, output_dir):
 
 
 def main():
-    experiment_file = 'exprmnt_2024_07_15__15_38_55'
+    experiment_file = 'exprmnt_2024_07_16__12_46_32'
     main_dir = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/files/results/'
     directory = os.path.join(main_dir, experiment_file, 'files/output_files/')
-    criteria = 'length'  # Change to 'day', 'replica', or 'length' as needed
-    paired_files = pair_files(directory, criteria)
+    paired_files = pair_files(directory)
+    timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
+    log_file = directory + f'corr_results{timestamp}.txt'
+    sys.stdout = open(log_file, 'w')
 
-    # calculate_im_acvc(paired_files[0], paired_files[1], directory, type='short')
-    # spearman_corr_generic(directory + paired_files[0][0], directory + paired_files[1][0], directory)
-    # spearman_corr_generic(directory + paired_files[0][1], directory + paired_files[1][1], directory)
-
-    i=0
     for pair in paired_files:
-        #merge_csv_files(directory + pair[0], directory + pair[1], directory)
-
         print(pair)
-        i+=1
 
-        if i ==1:
-            calculate_im_acvc(pair[0], pair[1], directory, type='long')
-            spearman_corr_generic(directory + pair[0], directory + pair[1], directory)
-        elif i ==2:
-            calculate_im_acvc(pair[0], pair[1], directory, type='short')
-            spearman_corr_generic(directory+pair[0], directory+pair[1], directory)
+        # Determine the type based on file names
+        if 'long' in pair[0] and 'long' in pair[1]:
+            data_type = 'long'
+        elif 'short' in pair[0] and 'short' in pair[1]:
+            data_type = 'short'
+        else:
+            raise ValueError("File pair does not match expected 'long' or 'short' types")
+
+        """ ## CALL 'spearman_corr_generic' FUNC FIRST ## """
+        spearman_corr_generic(directory + pair[0], directory + pair[1], log_file, type=data_type)
+        calculate_im_acvc(pair[0], pair[1], directory, log_file, type=data_type)
+
+    sys.stdout.close()
 
 
 # Example usage

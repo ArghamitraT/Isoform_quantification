@@ -15,7 +15,7 @@ import hashlib
 import pickle
 from DirichletOptimizer import DirichletModel
 import numpy as np
-import generate_images as gen_img
+import generate_corr as gen_img
 import time
 
 
