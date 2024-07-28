@@ -176,7 +176,7 @@ def spearman_corr_generic(file_path1, file_path2, log_file, type):
         print("TPM columns missing or incorrectly named in one of the datasets.")
 
 
-def pair_files(directory):
+def pair_files(directory, type):
     # Dictionary to store the files based on downsampling percentage and length type
     long_file_pairs = defaultdict(list)
     short_file_pairs = defaultdict(list)
@@ -184,28 +184,59 @@ def pair_files(directory):
     # Regular expression to match the files
     file_pattern = re.compile(r'(.*)_ds_(\d+)_aln_(\d{2})_(long|short)(.*)|(.*)_aln_(\d{2})_(long|short)(.*)')
 
-    # List all files in the directory
-    for file in os.listdir(directory):
-        match = file_pattern.match(file)
-        if match:
-            if match.groups()[1]:  # Matches pattern with downsampling
-                prefix, ds_percentage, aln_replica, length, suffix = match.groups()[:5]
-                key = (ds_percentage, length)
-                long_file_pairs[key].append((file, aln_replica))
-            else:  # Matches pattern without downsampling
-                prefix, aln_replica, length, suffix = match.groups()[5:]
-                token = re.search(r'VIGD_(\d+)', prefix).group(1)
-                key = (token)
-                short_file_pairs[key].append((file, aln_replica))
+    # This will give you LR and SR file names with same replica, eg: lr_01_replica1+lr_01_replica2,
+    if type == 'replica':
+        # List all files in the directory
+        for file in os.listdir(directory):
+            match = file_pattern.match(file)
+            if match:
+                if match.groups()[1]:  # Matches pattern with downsampling
+                    prefix, ds_percentage, aln_replica, length, suffix = match.groups()[:5]
+                    key = (ds_percentage, length)
+                    long_file_pairs[key].append((file, aln_replica))
+                else:  # Matches pattern without downsampling
+                    prefix, aln_replica, length, suffix = match.groups()[5:]
+                    token = re.search(r'VIGD_(\d+)', prefix).group(1)
+                    key = (token)
+                    short_file_pairs[key].append((file, aln_replica))
 
-    # Create long read pairs
-    paired_files = []
-    valid_tokens = set()
-    for key, files in long_file_pairs.items():
-        paired_files.append((files[0][0], files[1][0]))
-        sr_file1 = short_file_pairs[files[0][0].split('_')[3]][0][0]
-        sr_file2 = short_file_pairs[files[1][0].split('_')[3]][0][0]
-        paired_files.append((sr_file1, sr_file2))
+        # Create long read pairs
+        paired_files = []
+        valid_tokens = set()
+        for key, files in long_file_pairs.items():
+            paired_files.append((files[0][0], files[1][0]))
+            # (AT)
+            sr_file1 = short_file_pairs[files[0][0].split('_')[3]][0][0]
+            sr_file2 = short_file_pairs[files[1][0].split('_')[3]][0][0]
+            paired_files.append((sr_file1, sr_file2))
+
+    # This will give you LR and SR file names those were trained together, eg: lr_01_replica1+sr_01_replica2,
+    elif type =='within_trainee':
+        # List all files in the directory
+        for file in os.listdir(directory):
+            match = file_pattern.match(file)
+            if match:
+                if match.groups()[1]:  # Matches pattern with downsampling
+                    prefix, ds_percentage, aln_replica, length, suffix = match.groups()[:5]
+                    token = re.search(r'VIGD_(\d+)', prefix).group(1)
+                    key = (token)
+                    long_file_pairs[key].append((file, aln_replica))
+                else:  # Matches pattern without downsampling
+                    prefix, aln_replica, length, suffix = match.groups()[5:]
+                    token = re.search(r'VIGD_(\d+)', prefix).group(1)
+                    key = (token)
+                    short_file_pairs[key].append((file, aln_replica))
+
+        # Create long read pairs
+        paired_files = []
+        valid_tokens = set()
+        for key, files in long_file_pairs.items():
+            paired_files.append((files[0][0], short_file_pairs[files[0][0].split('_')[3]][0][0]))
+
+    # (AT)
+    # x = list(short_file_pairs.items())
+    # paired_files.append((x[0][1][0][0], x[1][1][0][0]))
+
 
     return paired_files
 
@@ -275,7 +306,8 @@ def calculate_im_acvc(rep1, rep2, directory, log_file, type='long'):
     plt.tight_layout()
     plt.title(f"stats for {part1} and {part2}")
     timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
-    plt.savefig(os.path.join(figure_dir, create_image_name(f"IM_CV_{type}" + timestamp + '.png')))
+    # (AT)
+    # plt.savefig(os.path.join(figure_dir, create_image_name(f"IM_CV_{type}" + timestamp + '.png')))
     plt.show()
 
 
@@ -310,7 +342,10 @@ def main():
     experiment_file = 'exprmnt_2024_07_16__12_46_32'
     main_dir = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/files/results/'
     directory = os.path.join(main_dir, experiment_file, 'files/output_files/')
-    paired_files = pair_files(directory)
+    # paired_files, 2 types
+    # type == 'replica': This will give you LR and SR file names with same replica, eg: lr_01_replica1+lr_01_replica2,
+    # type == 'within_trainee': This will give you LR and SR file names those were trained together, eg: lr_01_replica1+sr_01_replica2,
+    paired_files = pair_files(directory, type='replica')
     timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
     log_file = directory + f'corr_results{timestamp}.txt'
     sys.stdout = open(log_file, 'w')
@@ -319,14 +354,15 @@ def main():
         print(pair)
 
         # Determine the type based on file names
-        if 'long' in pair[0] and 'long' in pair[1]:
-            data_type = 'long'
-        elif 'short' in pair[0] and 'short' in pair[1]:
-            data_type = 'short'
-        else:
-            raise ValueError("File pair does not match expected 'long' or 'short' types")
+        # if 'long' in pair[0] and 'long' in pair[1]:
+        #     data_type = 'long'
+        # elif 'short' in pair[0] and 'short' in pair[1]:
+        #     data_type = 'short'
+        # else:
+        #     raise ValueError("File pair does not match expected 'long' or 'short' types")
 
         """ ## CALL 'spearman_corr_generic' FUNC FIRST ## """
+        data_type = 'long'
         spearman_corr_generic(directory + pair[0], directory + pair[1], log_file, type=data_type)
         calculate_im_acvc(pair[0], pair[1], directory, log_file, type=data_type)
 
