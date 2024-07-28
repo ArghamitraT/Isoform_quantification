@@ -104,7 +104,26 @@ def get_file_name(kind, l0=0, l1=0, l2=0, l3=0, ext=True):
 #main_data_dir = create_job_dir(dir = "", fold_name="terra_output_afterMLSB_ASA")
 
 # **** the first element should be LR, the second should be SR ****
-samples_file_names = [['ds_5_aln_01_long.bam', 'aln_02_short.bam'], ['ds_5_aln_02_long.bam', 'aln_01_short.bam']]
+# samples_file_names = [['ds_2_aln_01_long.bam', 'aln_02_short.bam'], 
+#                       ['ds_2_aln_02_long.bam', 'aln_01_short.bam'],
+#                       ['ds_8_aln_01_long.bam', 'aln_02_short.bam'], 
+#                       ['ds_8_aln_02_long.bam', 'aln_01_short.bam'],
+#                       ['ds_5_num1_aln_01_long.bam', 'aln_02_short.bam'], 
+#                       ['ds_5_num1_aln_02_long.bam', 'aln_01_short.bam'],
+#                       ['ds_10_num1_aln_01_long.bam', 'aln_02_short.bam'], 
+#                       ['ds_10_num1_aln_02_long.bam', 'aln_01_short.bam']]
+
+# samples_file_names = [['ds_10_aln_01_long.bam', 'aln_02_short.bam'], 
+#                       ['ds_10_aln_02_long.bam', 'aln_01_short.bam'],
+#                       ['ds_2_aln_01_long.bam', 'aln_02_short.bam'], 
+#                       ['ds_2_aln_02_long.bam', 'aln_01_short.bam'],
+#                       ['ds_8_aln_01_long.bam', 'aln_02_short.bam'], 
+#                       ['ds_8_aln_02_long.bam', 'aln_01_short.bam'],
+#                       ['aln_01_short.bam', 'aln_02_short.bam'],
+#                       ['aln_02_short.bam', 'aln_01_short.bam']]
+samples_file_names = [['ds_10_aln_01_long.bam', 'aln_02_short.bam']]
+
+
 #samples_file_names = [['ds_5_aln_01_long.bam', 'aln_02_short.bam']]
 other_script_names = ['EM_VI_GD.py', 'DirichletOptimizer.py']
 output_file_name = "output_PacIllu_VIGD_"
@@ -131,7 +150,7 @@ def create_readme():
     readme = open(name, "a")
 
     """ **CHANGE (AT)** WRITE THE COMMENT"""
-    comment = f"running Pac, Illumina data; code revised, phi initiated considering theta and p_nm, p_nm is calculated right. "
+    comment = f"Alpha correctly assigned, running SIRV for 100 loops. "
 
 
     readme.write(comment)
@@ -170,7 +189,7 @@ def gen_combination():
                 os.system(f"cp {script_dir} {data_dir}")
 
             # #os.system(f"cp {utility_file_path} {data_dir}")
-
+            ## (AT)
             os.system(f"chmod u+x {prg_file_path}")
             os.system(f"chmod u+x {slurm_file_path}")
             os.system(f"sbatch {slurm_file_path}")

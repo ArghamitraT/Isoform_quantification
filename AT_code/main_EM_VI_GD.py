@@ -11,7 +11,7 @@ output_file_default = os.path.join(os.getcwd(), '../../files/results/single_run/
 # Set up argparse to handle command-line arguments
 parser = argparse.ArgumentParser(description="Process BAM files and output results.")
 parser.add_argument("--output_path", type=str, default=output_file_default,
-                    help="Path for the output file. Default is '../../files/results/single_run/'.")
+                    help="Path for the output file. Default is '../../files/results/single_run/files/output_files/output_generic_VIGD_00000'.")
 # parser.add_argument("--sample1", type=str, help="Sample1 file name.")
 # parser.add_argument("--sample2", type=str, help="Sample2 file name.")
 
@@ -28,14 +28,14 @@ sample2 = main_folder + args.sample2
 
 
 ## (AT) SIRV
-# main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/SIRV/'
-# sample1 = main_folder + 'aln_E0.bam'
-# sample2 = main_folder + 'aln_E2.bam'
-# output_file = os.path.join(os.getcwd(), '../../files/results/single_run/output_SIRV_VIGD')
+main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/SIRV/'
+sample1 = main_folder + 'aln_E0.bam'
+sample2 = main_folder + 'aln_E2.bam'
+# output_file = os.path.join(os.getcwd(), '../../files/results/single_run/files/output_files/output_SIRV_VIGD_00000')
 
-# call the main class
+# call the main class ## (AT)
 Expec_Max (file_names=[sample1, sample2], count_file=output_file)
-# Expec_Max (file_names=[sample2], count_file=output_file)
+#Expec_Max (file_names=[sample1], count_file=output_file)
 
 
 print("#########END###########")#

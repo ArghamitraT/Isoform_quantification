@@ -22,6 +22,8 @@ import pickle
 from NanoCount.Read import Read
 from NanoCount.common import *
 
+crnt_tm = datetime.datetime.now()
+
 
 # ~~~~~~~~~~~~~~MAIN FUNCTION~~~~~~~~~~~~~~ #
 class Expec_Max:
@@ -40,7 +42,7 @@ class Expec_Max:
             sec_scoring_value: str = "alignment_score",
             convergence_target: float = 0.001,
             max_em_rounds: int = 100, ##(AT)
-            #max_em_rounds: int = 3, ##(AT)
+            #max_em_rounds: int = 10, ##(AT)
             extra_tx_info: bool = False,
             primary_score: str = "alignment_score",
             max_dist_3_prime: int = 50,
@@ -137,6 +139,7 @@ class Expec_Max:
         ##  (AT) UNCOMMENT
         ## Loop over all file names provided and parses the reads with
         for index, file_name in enumerate(self.file_names_list, start=1):
+            print(f"sample_{index} {file_name}")
             # Parse the BAM file
             read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
             # Store the dictionaries in the universal dictionary with a sample key
@@ -173,11 +176,11 @@ class Expec_Max:
         #     self.all_read_dicts['sample2'] = pickle.load(file)
         # with open('pkl_files/ref_len_dict_short.pkl', 'rb') as file:
         #     self.all_ref_len_dicts['sample2'] = pickle.load(file)
-        # (AT)
         # with open('/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/pkl_files/Pac_illu_set1_read_dicts.pkl', 'rb') as file:
         #     self.all_read_dicts = pickle.load(file)
         # with open('/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/pkl_files/Pac_illu_set1_ref_len_dicts.pkl', 'rb') as file:
         #     self.all_ref_len_dicts = pickle.load(file)
+
 
         # COMMENT
         print("parsing done")
@@ -199,11 +202,12 @@ class Expec_Max:
         # All the initial calculation
         for sample_key in self.all_read_dicts:
             self.all_Yri[sample_key], self.all_read_iso_prob[sample_key] = self.get_compatibility_modified(sample_key)
-            self.all_theta[sample_key], self.all_alpha[sample_key], self.all_isoform_indices[sample_key] \
+            self.all_theta[sample_key] \
                 = self.calculate_theta_and_alpha_prime_0(self.all_Yri[sample_key])
             demo_phi = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key], self.all_read_iso_prob[sample_key])
             self.all_Phi_ri[sample_key] = demo_phi
 
+        self.all_alpha = self.assign_alpha()
 
          # COMMENT
         print("Initiation")
@@ -230,13 +234,14 @@ class Expec_Max:
         # ) as pbar:
 
         # Initialize the Dirichlet optimizer with the theta data
-        dirichlet_optimizer = DirichletModel(self.all_theta, self.all_isoform_indices, self.all_alpha, self.exp_log_theta)
+        dirichlet_optimizer = DirichletModel(self.all_theta, self.all_alpha, self.exp_log_theta)
+
 
 
         """ EM and Gradient descent """
         # Iterate until convergence threshold or max EM round are reached
-        while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: ## (AT)
-        #while self.em_round < self.max_em_rounds:
+        #while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: ## (AT)
+        while self.em_round < self.max_em_rounds:
             self.convergence = 0
             self.em_round += 1
 
@@ -254,7 +259,7 @@ class Expec_Max:
                 print(f"Convergence_sample_{sample_num} {convergence}")
 
 
-            # UPDATE ALPHA
+            # UPDATE ALPHA (AT)
             dirichlet_optimizer.update_alpha()
             self.convergence = self.convergence/len(self.all_alpha)
             self.log.info("EM_loop {}".format(self.em_round))
@@ -279,6 +284,18 @@ class Expec_Max:
                                                                                       self.max_em_rounds))
         # Plot some figures
         # gen_img.plot_EM_results(alpha_history, convergence_history, theta_history)
+
+        print("Saving variables")
+        token = (self.count_file.split('/')[-1]).split('_')[-1]
+        model_save_path = '/'.join(self.count_file.split('/')[:-3])+'/weights/'
+        for sample_key in self.all_read_dicts:
+            final_save_path = model_save_path+sample_key+'_'+token
+            with open(self.create_image_name(final_save_path+'_phi', format=".pkl"), 'wb') as file:
+                pickle.dump(self.all_Phi_ri[sample_key], file)
+            with open(self.create_image_name(final_save_path+'_alpha_prime', format=".pkl"), 'wb') as file:
+                pickle.dump(self.all_alpha_prime[sample_key], file)
+        with open(self.create_image_name(model_save_path+'_'+token+'_alpha', format=".pkl"), 'wb') as file:
+            pickle.dump(self.all_alpha, file)
 
         # Write out results
         self.log.warning("Summarize data")
@@ -320,29 +337,33 @@ class Expec_Max:
         # print(f"Time taken to run the code was {end - start} seconds")
 
 
-     # ~~~~~~~~~~~~~~NEW FUNCTIONS (AT)~~~~~~~~~~~~~~ #
+     # ~~~~~~~~~~~~~~NEW FUNCTIONS~~~~~~~~~~~~~~ #
     def create_image_name(self, name, format=".png"):
-        crnt_tm = datetime.datetime.now()
         image_name = (name+"_" + str(crnt_tm.year) + "_" + str(crnt_tm.month) + "_" + str(crnt_tm.day) + "_"
                     + time.strftime("%H_%M_%S") + format)
         return image_name
 
     def calculate_elbo(self, sample_key):
+        """
+        Calculate the Evidence Lower BOund (ELBO) for a given sample.
 
+        Parameters:
+        sample_key (str): The key for the sample in the dataset.
+
+        Returns:
+        float: The ELBO value.
+        """
         # Extract necessary variables
         Phi_nm = self.all_Phi_ri[sample_key]
         Pnm = self.all_read_iso_prob[sample_key]
-        alpha = self.all_alpha[sample_key]
         alpha_prime = self.all_alpha_prime[sample_key]
         exp_log_theta = self.exp_log_theta[sample_key]
-        isoform_indices = self.all_isoform_indices[sample_key]
 
         # Initialize ELBO components
         elbo = 0.0
 
         # Calculate the first component: \sum_{n=1}^{N} \sum_{m=1}^{M} \phi_{nm} \left( \log \frac{p_{nm}}{\phi_{nm}} + \psi(\alpha_m) - \psi\left(\sum_{m=1}^{M} \alpha_m'\right) \right)
-        sum_alpha_prime = sum(alpha_prime)
-        # psi_sum_alpha_prime = psi(sum_alpha_prime)
+        sum_alpha_prime = sum(alpha_prime.values())
         for n, phi_n in Phi_nm.items():
             for m, phi_nm in phi_n.items():
                 p_nm = Pnm[n][m]
@@ -350,22 +371,22 @@ class Expec_Max:
                 if np.isnan(elbo):
                     raise ValueError(f"NaN encountered in first component for isoform {m} and read {n}")
 
-
         # Calculate the second component: \log \frac{\Gamma(\sum_{m=1}^{M} \alpha_m)}{\Gamma(\sum_{m=1}^{M} \alpha_m')}
-        sum_alpha = sum(alpha)
+        alpha = {k: self.all_alpha[k] for k in alpha_prime.keys()}
+        sum_alpha = sum(alpha.values())
         log_gamma_sum_alpha = gammaln(sum_alpha)
         log_gamma_sum_alpha_prime = gammaln(sum_alpha_prime)
         elbo += log_gamma_sum_alpha - log_gamma_sum_alpha_prime
 
         # Calculate the third component: \sum_{m=1}^{M} \log \frac{\Gamma(\alpha_m')}{\Gamma(\alpha_m)}
-        for isoform, index in isoform_indices.items():
-            log_gamma_alpha_prime_m = gammaln(alpha_prime[index])
-            log_gamma_alpha_m = gammaln(alpha[index])
+        for isoform in alpha_prime.keys():
+            log_gamma_alpha_prime_m = gammaln(alpha_prime[isoform])
+            log_gamma_alpha_m = gammaln(alpha[isoform])
             elbo += log_gamma_alpha_prime_m - log_gamma_alpha_m
 
         # Calculate the fourth component: \sum_{m=1}^{M} (\alpha_m - \alpha_m') \left( \exp_log_theta[isoform] \right)
-        for isoform, index in isoform_indices.items():
-            elbo += (alpha[index] - alpha_prime[index]) * exp_log_theta[isoform]
+        for isoform in alpha_prime.keys():
+            elbo += (alpha[isoform] - alpha_prime[isoform]) * exp_log_theta[isoform]
 
         return elbo
 
@@ -373,20 +394,39 @@ class Expec_Max:
         """
         Calculates the initial model parameter (isoform percentage) and alpha prime.
         """
-        all_alpha = self.all_alpha[sample_key]
+        all_alpha = self.all_alpha
         all_Zri = self.all_Phi_ri[sample_key]
-        isoform_indices = self.all_isoform_indices[sample_key]
+        all_theta = self.all_theta[sample_key]
 
-        # Initialize all_alpha_prime
-        all_alpha_prime = all_alpha
+        """
+        # Initialize a set to store all unique isoforms
+        isoforms_set = set()
+        
+        # Iterate over all samples and add isoforms to the set
+        for sample in self.all_theta.values():
+            isoforms_set.update(sample.keys())
+        
+        # Initialize a dictionary to store alpha values for each isoform
+        alpha = {}
+        
+        # Assign an alpha value to each isoform
+        for isoform in isoforms_set:
+            alpha[isoform] = self.alpha_initial  # You can change this value to any positive value you want
+        
+        return alpha
+        """
+
+
+        # Initialize all_alpha_prime as an empty dictionary
+        all_alpha_prime = {isoform: all_alpha[isoform] for isoform in all_theta}
 
         # Iterate over each read in all_Zri
         for read_key, isoform_dict in all_Zri.items():
             # Iterate over each isoform and its proportion (phi)
             for isoform, phi in isoform_dict.items():
-                index = isoform_indices[isoform]
-                # Update alpha_prime for the isoform
-                all_alpha_prime[index] += phi
+                if isoform in all_alpha_prime:
+                    # Update alpha_prime for the isoform
+                    all_alpha_prime[isoform] += phi
 
         return all_alpha_prime
 
@@ -395,8 +435,7 @@ class Expec_Max:
         Calculate the expected value E_Q(theta)[theta_m] for a Dirichlet distribution.
 
         Parameters:
-        alpha_prime (list or array): The alpha prime values for the isoforms.
-        isoform_indices (dict): Mapping of isoform names to their indices.
+        sample_key (str): The key for the sample in the dataset.
 
         Returns:
         Counter: The expected theta values as a Counter.
@@ -404,41 +443,37 @@ class Expec_Max:
         convergence = 0
         theta_old = self.all_theta[sample_key]
         alpha_prime = self.all_alpha_prime[sample_key]
-        isoform_indices = self.all_isoform_indices[sample_key]
-        sum_alpha_prime = sum(alpha_prime)
+        sum_alpha_prime = sum(alpha_prime.values())
         expected_theta = Counter()
 
-        for isoform, index in isoform_indices.items():
-            expected_theta[isoform] = alpha_prime[index] / sum_alpha_prime
+        for isoform, alpha_value in alpha_prime.items():
+            expected_theta[isoform] = alpha_value / sum_alpha_prime
 
         if self.em_round > 0:
             for ref_name in theta_old.keys():
                 convergence += abs(theta_old[ref_name] - expected_theta[ref_name])
 
-
         return expected_theta, convergence
 
     def calculate_exp_log_theta_m(self, sample_key):
-
         """
         Calculate the expected log value E_Q(theta)[log(theta_m)] for a Dirichlet distribution.
 
         Parameters:
-        alpha_prime (Counter): The alpha prime values for the isoforms.
-        isoform_indices (dict): Mapping of isoform names to their indices.
+        sample_key (str): The key for the sample in the dataset.
 
         Returns:
         Counter: The expected log theta values as a Counter.
         """
         alpha_prime = self.all_alpha_prime[sample_key]
-        isoform_indices = self.all_isoform_indices[sample_key]
-        sum_alpha_prime = np.sum(alpha_prime)
+        sum_alpha_prime = np.sum(list(alpha_prime.values()))
         eq_log_theta_m = Counter()
 
-        for isoform, index in isoform_indices.items():
-            eq_log_theta_m[isoform] = psi(alpha_prime[index]) - psi(sum_alpha_prime)
+        for isoform, alpha_value in alpha_prime.items():
+            eq_log_theta_m[isoform] = psi(alpha_value) - psi(sum_alpha_prime)
 
         return eq_log_theta_m
+    
 
     def update_Phi_ri(self, sample_key):
 
@@ -460,6 +495,24 @@ class Expec_Max:
                 updated_phi[read][isoform] /= total_phi
 
         return updated_phi
+    
+    def assign_alpha(self):
+        # Initialize a set to store all unique isoforms
+        isoforms_set = set()
+        
+        # Iterate over all samples and add isoforms to the set
+        for sample in self.all_theta.values():
+            isoforms_set.update(sample.keys())
+        
+        # Initialize a dictionary to store alpha values for each isoform
+        alpha = {}
+        
+        # Assign an alpha value to each isoform
+        for isoform in isoforms_set:
+            alpha[isoform] = self.alpha_initial  # You can change this value to any positive value you want
+        
+        return alpha
+    
     def calculate_theta_and_alpha_prime_0(self, all_Zri):
         """
         Calculates the initial model parameter (isoform percentage) and alpha prime.
@@ -485,7 +538,8 @@ class Expec_Max:
 
         all_alpha = [self.alpha_initial] * len(abundance_dict)
 
-        return abundance_dict, all_alpha, isoform_indices
+        # return abundance_dict, all_alpha, isoform_indices
+        return abundance_dict
 
     def update_theta(self, sample_key):
         """ Calculates the mode of the dirichlet """

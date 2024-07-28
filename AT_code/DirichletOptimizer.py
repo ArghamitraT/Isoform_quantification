@@ -3,13 +3,10 @@ import torch.optim as optim
 
 
 class DirichletModel:
-    def __init__(self, all_theta, all_isoform_indices, all_alpha, exp_log_theta):
+    def __init__(self, all_theta, all_alpha, exp_log_theta):
         self.all_theta = all_theta
-        self.all_alpha = {k: torch.tensor(v, dtype=torch.float32, requires_grad=True) if isinstance(v, list) else v for
-                          k, v in all_alpha.items()}
+        self.all_alpha = {k: torch.tensor(v, dtype=torch.float32, requires_grad=True) if not isinstance(v, torch.Tensor) else v for k, v in all_alpha.items()}
         self.exp_log_theta = exp_log_theta
-
-        self.all_isoform_indices = all_isoform_indices
 
         # Initialize a global optimizer for all alpha parameters
         self.optimizer = optim.Adam([param for param in self.all_alpha.values()], lr=0.01)  # lr is the learning rate
@@ -46,73 +43,63 @@ class DirichletModel:
             print(f"GD_Iteration {iteration}")
             print(f"GD_Current_Loss = {loss.item()}")
 
-    def compute_log_likelihood(self):
-        """
-        Calculates the log PDF of Dirichlet function considering all samples.
-        """
-        log_likelihood = 0
 
-        for sample_key in self.all_theta:
-            # Convert all_theta Counters into a tensor for PyTorch processing
-            theta_tensor = self._counters_to_tensor(self.all_theta[sample_key], self.all_isoform_indices[sample_key])
-
-            # Get alpha for the specific sample
-            alpha = self.all_alpha[sample_key]
-
-            # Compute the log likelihood for the current sample
-            log_B_alpha = torch.sum(torch.lgamma(alpha)) - torch.lgamma(torch.sum(alpha))
-            sample_log_likelihood = -log_B_alpha  # we need log(1/B(alpha))
-
-            for isoform, index in self.all_isoform_indices[sample_key].items():
-                alpha_i = alpha[index]
-                theta_fi = theta_tensor[index]
-                temp_val = (alpha_i - 1) * torch.log(theta_fi + 1e-10) # takes log[E(theta)]
-                if torch.isnan(temp_val).any():
-                    sample_log_likelihood += (alpha_i - 1) * torch.log(torch.zeros(1).squeeze(0) + 1e-10)
-                else:
-                    sample_log_likelihood += temp_val
-
-            log_likelihood += sample_log_likelihood
-
-        return log_likelihood
 
     def compute_log_likelihood_ExpLogTheta(self):
         """
         Calculates the log PDF of Dirichlet function considering all samples.
         """
         log_likelihood = 0
+        # Convert all_theta Counters into a tensor for PyTorch processing
+        theta_tensor = self._counters_to_tensor(self.exp_log_theta)
 
-        for sample_key in self.all_theta:
-            # Convert exp_log_thetaa Counters into a tensor for PyTorch processing
-            theta_tensor = self._counters_to_tensor(self.exp_log_theta[sample_key], self.all_isoform_indices[sample_key])
+        # Compute the log likelihood
+        log_B_alpha = torch.sum(torch.lgamma(torch.tensor(list(self.all_alpha.values())))) - torch.lgamma(torch.sum(torch.tensor(list(self.all_alpha.values()))))
+        log_likelihood = -log_B_alpha  # we need log(1/B(alpha))
 
-            # Get alpha for the specific sample
-            alpha = self.all_alpha[sample_key]
-
-            # Compute the log likelihood for the current sample
-            log_B_alpha = torch.sum(torch.lgamma(alpha)) - torch.lgamma(torch.sum(alpha))
-            sample_log_likelihood = -log_B_alpha  # we need log(1/B(alpha))
-
-            for isoform, index in self.all_isoform_indices[sample_key].items():
-                alpha_i = alpha[index]
-                theta_fi = theta_tensor[index]
-                temp_val = (alpha_i - 1) * (theta_fi + 1e-10) # takes E[log(theta)]
+        for f in range(theta_tensor.size(0)):  # Loop over each sample
+            for isoform, alpha_i in self.all_alpha.items():  # Loop over each alpha_i
+                isoform_index = list(self.all_alpha.keys()).index(isoform)
+                temp_val = (alpha_i - 1) * (theta_tensor[f, isoform_index] + 1e-10)
                 if torch.isnan(temp_val).any():
-                    sample_log_likelihood += (alpha_i - 1) * torch.log(torch.zeros(1).squeeze(0) + 1e-10)
+                    print('nan')
+                    log_likelihood += (alpha_i - 1) * torch.log(torch.zeros(1).squeeze(0) + 1e-10)
                 else:
-                    sample_log_likelihood += temp_val
-
-            log_likelihood += sample_log_likelihood
+                    log_likelihood += temp_val
 
         return log_likelihood
 
-    def _counters_to_tensor(self, sample_theta, sample_isoform_indices):
-        # Initialize a row with tiny values
-        row = torch.full((len(sample_isoform_indices),), torch.finfo(torch.float).tiny)
+    def _counters_to_tensor(self, all_theta):
+        """
+        Convert all_theta (a dictionary of Counters) to a 2D tensor.
+        
+        Parameters:
+        all_theta (dict): Dictionary where keys are sample names and values are Counters of isoforms and their theta values.
 
-        # Fill in the row with the theta values from the Counter
-        for isoform, index in sample_isoform_indices.items():
-            if isoform in sample_theta:
-                row[index] = sample_theta[isoform]
+        Returns:
+        torch.Tensor: 2D tensor where each row corresponds to a sample and each column corresponds to an isoform.
+        """
+        # Use alpha to get all unique isoform names
+        isoforms = sorted(list(self.all_alpha.keys()))
 
-        return row
+        # Prepare an empty list to store the tensor rows
+        tensor_list = []
+
+        # Iterate over each sample and convert its Counter to a row in the tensor
+        for sample_key, counter in all_theta.items():
+            # Initialize a row with zeros
+            row = torch.full((len(isoforms),), torch.finfo(torch.float).tiny)
+
+            # Fill in the row with the theta values from the Counter
+            for isoform, theta_value in counter.items():
+                if isoform in self.all_alpha:
+                    i = isoforms.index(isoform)
+                    row[i] = theta_value
+
+            # Add the row to our list
+            tensor_list.append(row)
+
+        # Stack all rows to create a 2D tensor
+        theta_tensor = torch.stack(tensor_list)
+
+        return theta_tensor
