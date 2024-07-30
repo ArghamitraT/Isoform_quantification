@@ -41,8 +41,9 @@ class Expec_Max:
             sec_scoring_threshold: float = 0.95,
             sec_scoring_value: str = "alignment_score",
             convergence_target: float = 0.001,
-            max_em_rounds: int = 100, ##(AT)
-            #max_em_rounds: int = 10, ##(AT)
+            #convergence_target: float = 0.009,
+            #max_em_rounds: int = 100, ##(AT)
+            max_em_rounds: int = 10, ##(AT)
             extra_tx_info: bool = False,
             primary_score: str = "alignment_score",
             max_dist_3_prime: int = 50,
@@ -125,7 +126,7 @@ class Expec_Max:
         self.all_alpha_prime = {}
         self.all_isoform_indices = {}
         self.all_read_iso_prob = {}
-        self.exp_log_theta = {}
+        self.expectation_log_theta = {}
         self.elbo = {}
         self.alpha_initial = alpha_initial
 
@@ -176,6 +177,8 @@ class Expec_Max:
         #     self.all_read_dicts['sample2'] = pickle.load(file)
         # with open('pkl_files/ref_len_dict_short.pkl', 'rb') as file:
         #     self.all_ref_len_dicts['sample2'] = pickle.load(file)
+
+        #(AT)
         # with open('/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/pkl_files/Pac_illu_set1_read_dicts.pkl', 'rb') as file:
         #     self.all_read_dicts = pickle.load(file)
         # with open('/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/pkl_files/Pac_illu_set1_ref_len_dicts.pkl', 'rb') as file:
@@ -234,7 +237,7 @@ class Expec_Max:
         # ) as pbar:
 
         # Initialize the Dirichlet optimizer with the theta data
-        dirichlet_optimizer = DirichletModel(self.all_theta, self.all_alpha, self.exp_log_theta)
+        dirichlet_optimizer = DirichletModel(self.all_theta, self.all_alpha, self.expectation_log_theta)
 
 
 
@@ -249,9 +252,9 @@ class Expec_Max:
             sample_num = 0
             for sample_key in self.all_read_dicts:
                 self.all_alpha_prime[sample_key] = self.update_alpha_prime(sample_key)
-                self.exp_log_theta[sample_key] = self.calculate_exp_log_theta_m(sample_key)
+                self.expectation_log_theta[sample_key] = self.calculate_expectation_log_theta_m(sample_key)
                 self.all_Phi_ri[sample_key] = self.update_Phi_ri(sample_key)
-                self.all_theta[sample_key], convergence = self.update_exp_theta(sample_key)
+                self.all_theta[sample_key], convergence = self.update_expectation_theta(sample_key)
                 self.elbo[sample_key] = self.calculate_elbo(sample_key)
                 sample_num +=1
                 self.convergence += convergence
@@ -260,8 +263,9 @@ class Expec_Max:
 
 
             # UPDATE ALPHA (AT)
-            dirichlet_optimizer.update_alpha()
-            self.convergence = self.convergence/len(self.all_alpha)
+            self.all_alpha = dirichlet_optimizer.update_alpha()
+            print("alpha_summation ", np.sum(list(self.all_alpha.values())))
+            self.convergence = self.convergence/sample_num
             self.log.info("EM_loop {}".format(self.em_round))
             self.log.info("EM_convergence {} ".format(self.convergence))
 
@@ -294,7 +298,7 @@ class Expec_Max:
                 pickle.dump(self.all_Phi_ri[sample_key], file)
             with open(self.create_image_name(final_save_path+'_alpha_prime', format=".pkl"), 'wb') as file:
                 pickle.dump(self.all_alpha_prime[sample_key], file)
-        with open(self.create_image_name(model_save_path+'_'+token+'_alpha', format=".pkl"), 'wb') as file:
+        with open(self.create_image_name(model_save_path+'all_'+token+'_alpha', format=".pkl"), 'wb') as file:
             pickle.dump(self.all_alpha, file)
 
         # Write out results
@@ -357,7 +361,7 @@ class Expec_Max:
         Phi_nm = self.all_Phi_ri[sample_key]
         Pnm = self.all_read_iso_prob[sample_key]
         alpha_prime = self.all_alpha_prime[sample_key]
-        exp_log_theta = self.exp_log_theta[sample_key]
+        expectation_log_theta = self.expectation_log_theta[sample_key]
 
         # Initialize ELBO components
         elbo = 0.0
@@ -367,7 +371,10 @@ class Expec_Max:
         for n, phi_n in Phi_nm.items():
             for m, phi_nm in phi_n.items():
                 p_nm = Pnm[n][m]
-                elbo += phi_nm * (np.log(p_nm / phi_nm) + exp_log_theta[m])
+                try:
+                    elbo += phi_nm * (np.log(p_nm / phi_nm) + expectation_log_theta[m])
+                except:
+                    print()
                 if np.isnan(elbo):
                     raise ValueError(f"NaN encountered in first component for isoform {m} and read {n}")
 
@@ -384,9 +391,9 @@ class Expec_Max:
             log_gamma_alpha_m = gammaln(alpha[isoform])
             elbo += log_gamma_alpha_prime_m - log_gamma_alpha_m
 
-        # Calculate the fourth component: \sum_{m=1}^{M} (\alpha_m - \alpha_m') \left( \exp_log_theta[isoform] \right)
+        # Calculate the fourth component: \sum_{m=1}^{M} (\alpha_m - \alpha_m') \left( \expectation_log_theta[isoform] \right)
         for isoform in alpha_prime.keys():
-            elbo += (alpha[isoform] - alpha_prime[isoform]) * exp_log_theta[isoform]
+            elbo += (alpha[isoform] - alpha_prime[isoform]) * expectation_log_theta[isoform]
 
         return elbo
 
@@ -430,7 +437,7 @@ class Expec_Max:
 
         return all_alpha_prime
 
-    def update_exp_theta(self, sample_key):
+    def update_expectation_theta(self, sample_key):
         """
         Calculate the expected value E_Q(theta)[theta_m] for a Dirichlet distribution.
 
@@ -455,7 +462,7 @@ class Expec_Max:
 
         return expected_theta, convergence
 
-    def calculate_exp_log_theta_m(self, sample_key):
+    def calculate_expectation_log_theta_m(self, sample_key):
         """
         Calculate the expected log value E_Q(theta)[log(theta_m)] for a Dirichlet distribution.
 
@@ -482,15 +489,17 @@ class Expec_Max:
            phi_nm ∝ p_nm * exp(E_Q(theta)[log(theta_m)])
            """
         updated_phi = {}
-        exp_log_theta_m = self.exp_log_theta[sample_key]
+        expectation_log_theta_m = self.expectation_log_theta[sample_key]
 
         for read, isoform_probs in self.all_read_iso_prob[sample_key].items():
             updated_phi[read] = {}
             for isoform, p_nm in isoform_probs.items():
-                updated_phi[read][isoform] = p_nm * np.exp(exp_log_theta_m[isoform])
+                updated_phi[read][isoform] = p_nm * np.exp(expectation_log_theta_m[isoform])
 
             # Normalize phi values for the current read
             total_phi = np.sum(list(updated_phi[read].values()))
+            # (AT) comment
+            # print("total_phi ", total_phi)
             for isoform in updated_phi[read]:
                 updated_phi[read][isoform] /= total_phi
 
