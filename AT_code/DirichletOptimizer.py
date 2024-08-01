@@ -1,15 +1,29 @@
 import torch
 import torch.optim as optim
+import torch.nn.functional as F
+
 
 
 class DirichletModel:
-    def __init__(self, all_theta, all_alpha, expectation_log_theta):
+    def __init__(self, all_theta, all_alpha, expectation_log_theta, GD_lr):
         self.all_theta = all_theta
-        self.all_alpha = {k: torch.tensor(v, dtype=torch.float32, requires_grad=True) if not isinstance(v, torch.Tensor) else v for k, v in all_alpha.items()}
         self.expectation_log_theta = expectation_log_theta
 
-        # Initialize a global optimizer for all alpha parameters
-        self.optimizer = optim.Adam([param for param in self.all_alpha.values()], lr=0.01)  # lr is the learning rate
+        # self.all_alpha = {k: torch.tensor(v, dtype=torch.float32, requires_grad=True) if not isinstance(v, torch.Tensor) else v for k, v in all_alpha.items()}
+       
+        # # Initialize a global optimizer for all alpha parameters
+        # self.optimizer = optim.Adam([param for param in self.all_alpha.values()], lr=0.01)  # lr is the learning rate
+
+        # Convert all_alpha to log-space leaf tensors with gradient tracking (constrained on negative alpha of dirichlet)
+        self.all_alpha = {
+            k: torch.log(torch.tensor(v, dtype=torch.float32, requires_grad=True)).clone().detach().requires_grad_(True)
+            if not isinstance(v, torch.Tensor) else torch.log(v).clone().detach().requires_grad_(True)
+            for k, v in all_alpha.items()
+        }
+
+        # Initialize a global optimizer for all log_alpha parameters
+        self.optimizer = optim.Adam(self.all_alpha.values(), lr=GD_lr)  # lr is the learning rate
+
 
     def return_alpha(self):
         """
@@ -27,8 +41,8 @@ class DirichletModel:
         previous_loss = float('inf')  # Initialize previous loss as infinity for comparison
         for iteration in range(max_iterations):
             self.optimizer.zero_grad()  # Clear the gradients from the previous step
-            log_likelihood = self.compute_log_likelihood_ExpLogTheta() # (AT)
-            #log_likelihood = self.compute_log_likelihood_LogTheta() # (AT)
+            #log_likelihood = self.compute_log_likelihood_ExpLogTheta() # (AT)
+            log_likelihood = self.compute_log_likelihood_LogTheta() # (AT)
             loss = -log_likelihood  # We want to maximize log likelihood, hence minimize the negative log likelihood
             loss.backward()  # Compute the gradient of the loss w.r.t. the parameters (alpha)
             self.optimizer.step()  # Perform a gradient descent step to update alpha
@@ -44,7 +58,8 @@ class DirichletModel:
             print(f"GD_Iteration {iteration}")
             print(f"GD_Current_Loss = {loss.item()}")
         
-        alpha_nontensor = {k: v.item() for k, v in self.all_alpha.items()}
+        # After updating self.log_alpha, convert to non-log space and non-tensor
+        alpha_nontensor = {k: torch.exp(v).item() for k, v in self.all_alpha.items()}
 
         return alpha_nontensor
 

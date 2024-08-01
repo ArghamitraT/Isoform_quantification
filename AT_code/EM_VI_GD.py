@@ -17,6 +17,7 @@ import numpy as np
 from scipy.special import psi, gammaln
 import time
 import pickle
+from scipy.stats import spearmanr
 
 # Local imports
 from NanoCount.Read import Read
@@ -42,15 +43,16 @@ class Expec_Max:
             sec_scoring_value: str = "alignment_score",
             convergence_target: float = 0.001,
             #convergence_target: float = 0.009,
-            #max_em_rounds: int = 100, ##(AT)
-            max_em_rounds: int = 10, ##(AT)
+            max_em_rounds: int = 100, ##(AT)
+            #max_em_rounds: int = 10, ##(AT)
             extra_tx_info: bool = False,
             primary_score: str = "alignment_score",
             max_dist_3_prime: int = 50,
             max_dist_5_prime: int = -1,
             verbose: bool = False,
             quiet: bool = False,
-            alpha_initial: float = 3,
+            alpha_initial: float = 10000000, #(AT)
+            GD_lr = 0.01
     ):
         """
         NOTE: File file does not use any hashing and runs EM on both ambiguous and unambiguous reads. This can be improved in future
@@ -129,6 +131,7 @@ class Expec_Max:
         self.expectation_log_theta = {}
         self.elbo = {}
         self.alpha_initial = alpha_initial
+        self.GD_lr = GD_lr
 
         self.log.warning("Initialise Nanocount")
 
@@ -224,10 +227,6 @@ class Expec_Max:
         self.em_round = 0
         self.convergence = 1
 
-        # storing the values for each iteration for downstream analysis and plotting
-        theta_history = {}  # Dictionary to store theta values for each sample at each iteration
-        alpha_history = []  # List to store alpha values at each iteration
-        convergence_history = []  # List to store convergence values at each iteration
 
         # with tqdm(
         #         unit=" rounds",
@@ -237,14 +236,17 @@ class Expec_Max:
         # ) as pbar:
 
         # Initialize the Dirichlet optimizer with the theta data
-        dirichlet_optimizer = DirichletModel(self.all_theta, self.all_alpha, self.expectation_log_theta)
+        dirichlet_optimizer = DirichletModel(self.all_theta, self.all_alpha, self.expectation_log_theta, self.GD_lr)
 
-
+        # filename for saving variables
+        token = (self.count_file.split('/')[-1]).split('_')[-1]
+        model_save_path = '/'.join(self.count_file.split('/')[:-3])+'/weights/'
+        final_save_path = self.create_image_name(model_save_path+'allWeights_'+token, format=".pkl")
 
         """ EM and Gradient descent """
         # Iterate until convergence threshold or max EM round are reached
-        #while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: ## (AT)
-        while self.em_round < self.max_em_rounds:
+        while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: ## (AT)
+        #while self.em_round < self.max_em_rounds:
             self.convergence = 0
             self.em_round += 1
 
@@ -269,11 +271,16 @@ class Expec_Max:
             self.log.info("EM_loop {}".format(self.em_round))
             self.log.info("EM_convergence {} ".format(self.convergence))
 
-            # store the values for downstream
-            # alpha_history.append(np.mean(self.alpha))
-            convergence_history.append(self.convergence)
+            # generate model fit correlation
+            self.spearman_corr('theta1_theta2')
+            self.spearman_corr('theta1_alpha')
+            self.spearman_corr('theta2_alpha')
+
             # pbar.update(1)
             self.log.debug("EM Round: {} / Convergence value: {}".format(self.em_round, self.convergence))
+
+            # Save the state after each iteration
+            self.save_state(final_save_path)
         
         end = time.time()
         interval = (end-start)/60
@@ -286,21 +293,7 @@ class Expec_Max:
             self.log.error(
                 "Convergence target ({}) could not be reached after {} rounds".format(self.convergence_target,
                                                                                       self.max_em_rounds))
-        # Plot some figures
-        # gen_img.plot_EM_results(alpha_history, convergence_history, theta_history)
-
-        print("Saving variables")
-        token = (self.count_file.split('/')[-1]).split('_')[-1]
-        model_save_path = '/'.join(self.count_file.split('/')[:-3])+'/weights/'
-        for sample_key in self.all_read_dicts:
-            final_save_path = model_save_path+sample_key+'_'+token
-            with open(self.create_image_name(final_save_path+'_phi', format=".pkl"), 'wb') as file:
-                pickle.dump(self.all_Phi_ri[sample_key], file)
-            with open(self.create_image_name(final_save_path+'_alpha_prime', format=".pkl"), 'wb') as file:
-                pickle.dump(self.all_alpha_prime[sample_key], file)
-        with open(self.create_image_name(model_save_path+'all_'+token+'_alpha', format=".pkl"), 'wb') as file:
-            pickle.dump(self.all_alpha, file)
-
+    
         # Write out results
         self.log.warning("Summarize data")
         indx = 0
@@ -342,10 +335,94 @@ class Expec_Max:
 
 
      # ~~~~~~~~~~~~~~NEW FUNCTIONS~~~~~~~~~~~~~~ #
+     # Add these methods to your class
+    def save_state(self, filename):
+        with open(filename, 'wb') as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load_state(filename):
+        with open(filename, 'rb') as f:
+            return pickle.load(f)
+        
+
+
     def create_image_name(self, name, format=".png"):
         image_name = (name+"_" + str(crnt_tm.year) + "_" + str(crnt_tm.month) + "_" + str(crnt_tm.day) + "_"
                     + time.strftime("%H_%M_%S") + format)
         return image_name
+
+    def fraction_to_float(self, fraction):
+        # Assuming fraction is in string format '1/2', '3/4', etc.
+        try:
+            numerator, denominator = fraction.split('/')
+            return float(numerator) / float(denominator)
+        except ValueError:
+            # If fraction is not in expected format, return it as a float
+            return float(fraction)
+
+    def spearman_corr(self, comparison_criteria):
+        
+        if comparison_criteria == 'theta1_theta2':
+            model_weight1 = self.all_theta['sample1']
+            model_weight2 = self.all_theta['sample2']
+        elif comparison_criteria == 'theta1_alpha':
+            model_weight1 = self.all_theta['sample1']
+            model_weight2 = self.all_alpha
+        elif comparison_criteria == 'theta2_alpha':
+            model_weight1 = self.all_theta['sample2']
+            model_weight2 = self.all_alpha
+
+        # Convert dictionary to DataFrame
+        if isinstance(model_weight1, dict):
+            model_weight1 = pd.DataFrame(list(model_weight1.items()), columns=['transcript_name', 'tpm'])
+            model_weight2 = pd.DataFrame(list(model_weight2.items()), columns=['transcript_name', 'tpm'])
+        
+        # if we are correlating theta with alpha, alpha needs to be normalized
+        if comparison_criteria == 'theta1_alpha' or comparison_criteria == 'theta2_alpha':
+            model_weight2['tpm'] = model_weight2['tpm'] / model_weight2['tpm'].sum()
+
+
+        print()
+        # tpm_sum = our_quant['tpm'].sum()
+        # our_quant['tpm'] = our_quant['tpm'] / tpm_sum
+
+        # # Load ground truth data from CSV file
+        # ground_truth = pd.read_csv(ground_truth_path)
+
+        # # Clean the isoform names in our_quant to match the naming convention in ground_truth
+        # our_quant['cleaned_name'] = our_quant['transcript_name'].str.replace(r'\(\+\)|\(\-\)', '', regex=True)
+
+        # Initialize lists to store matched TPM and molarity values
+        matched_tpm = []
+        matched_molarity = []
+
+        # Iterate over first variable to find matching molarity values in second variable
+        for index, row in model_weight1.iterrows():
+            # Extract the cleaned isoform name and tpm value
+            cleaned_name = row['transcript_name']
+            tpm_value = row['tpm']
+
+            # Find the corresponding molarity value in second variable
+            molarity_value = model_weight2.loc[model_weight2['transcript_name'] == cleaned_name, 'tpm'].values
+
+            # If a matching isoform is found in second variable
+            if len(molarity_value) > 0:
+                # Append the tpm and molarity to the respective lists
+                matched_tpm.append(np.log(tpm_value + 1))
+                matched_molarity.append(np.log(molarity_value[0]+1))  # Take the first match in case of multiple
+
+        # Calculate Spearman's correlation using the matched lists
+        correlation, p_value = spearmanr(matched_tpm, matched_molarity)
+
+        # Output the results
+        if comparison_criteria == 'theta1_theta2':
+            print(f'Spearman_corr_theta1_theta2 {correlation}')
+        elif comparison_criteria == 'theta1_alpha':
+            print(f'Spearman_corr_theta1_alpha {correlation}')
+        elif comparison_criteria == 'theta2_alpha':
+            print(f'Spearman_corr_theta2_alpha {correlation}')
+        
 
     def calculate_elbo(self, sample_key):
         """
@@ -404,25 +481,6 @@ class Expec_Max:
         all_alpha = self.all_alpha
         all_Zri = self.all_Phi_ri[sample_key]
         all_theta = self.all_theta[sample_key]
-
-        """
-        # Initialize a set to store all unique isoforms
-        isoforms_set = set()
-        
-        # Iterate over all samples and add isoforms to the set
-        for sample in self.all_theta.values():
-            isoforms_set.update(sample.keys())
-        
-        # Initialize a dictionary to store alpha values for each isoform
-        alpha = {}
-        
-        # Assign an alpha value to each isoform
-        for isoform in isoforms_set:
-            alpha[isoform] = self.alpha_initial  # You can change this value to any positive value you want
-        
-        return alpha
-        """
-
 
         # Initialize all_alpha_prime as an empty dictionary
         all_alpha_prime = {isoform: all_alpha[isoform] for isoform in all_theta}
@@ -498,13 +556,30 @@ class Expec_Max:
 
             # Normalize phi values for the current read
             total_phi = np.sum(list(updated_phi[read].values()))
-            # (AT) comment
-            # print("total_phi ", total_phi)
             for isoform in updated_phi[read]:
                 updated_phi[read][isoform] /= total_phi
 
         return updated_phi
     
+    # def assign_alpha(self):
+    #     # Initialize a set to store all unique isoforms
+    #     isoforms_set = set()
+        
+    #     # Iterate over all samples and add isoforms to the set
+    #     for sample in self.all_theta.values():
+    #         isoforms_set.update(sample.keys())
+        
+    #     # Initialize a dictionary to store alpha values for each isoform
+    #     alpha = {}
+        
+    #     # Assign an alpha value to each isoform
+    #     for isoform in isoforms_set:
+    #         #alpha[isoform] = self.alpha_initial  # You can change this value to any positive value you want
+    #         alpha[isoform] = 1  # You can change this value to any positive value you want
+        
+    #     return alpha
+
+
     def assign_alpha(self):
         # Initialize a set to store all unique isoforms
         isoforms_set = set()
@@ -513,14 +588,31 @@ class Expec_Max:
         for sample in self.all_theta.values():
             isoforms_set.update(sample.keys())
         
+        # Number of unique isoforms
+        n = len(isoforms_set)
+
+        # Set the fixed seed for reproducibility
+        np.random.seed(5)
+        
+        # Step 1: Initialize alpha values in an unconstrained space
+        alpha_raw = np.random.randn(n)
+        
+        # Step 2: Apply the softmax function to ensure they sum to 1
+        alpha_softmax = np.exp(alpha_raw) / np.sum(np.exp(alpha_raw))
+        
+        # Step 3: Scale the resulting values to have the desired fixed sum
+        alpha_scaled = alpha_softmax * self.alpha_initial
+        
         # Initialize a dictionary to store alpha values for each isoform
         alpha = {}
         
-        # Assign an alpha value to each isoform
-        for isoform in isoforms_set:
-            alpha[isoform] = self.alpha_initial  # You can change this value to any positive value you want
+        # Assign the scaled alpha values to each isoform
+        for isoform, value in zip(isoforms_set, alpha_scaled):
+            alpha[isoform] = value  # Convert tensor to float
         
         return alpha
+    
+
     
     def calculate_theta_and_alpha_prime_0(self, all_Zri):
         """
@@ -544,8 +636,6 @@ class Expec_Max:
         # Normalize the abundance dictionary
         for ref_name in abundance_dict.keys():
             abundance_dict[ref_name] = abundance_dict[ref_name] / total
-
-        all_alpha = [self.alpha_initial] * len(abundance_dict)
 
         # return abundance_dict, all_alpha, isoform_indices
         return abundance_dict
