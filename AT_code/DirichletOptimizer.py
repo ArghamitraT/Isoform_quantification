@@ -8,29 +8,34 @@ class DirichletModel:
     def __init__(self, all_theta, all_alpha, expectation_log_theta, GD_lr):
         self.all_theta = all_theta
         self.expectation_log_theta = expectation_log_theta
+        self.GD_lr = GD_lr
+        self.initial_alpha = all_alpha
 
         # self.all_alpha = {k: torch.tensor(v, dtype=torch.float32, requires_grad=True) if not isinstance(v, torch.Tensor) else v for k, v in all_alpha.items()}
        
         # # Initialize a global optimizer for all alpha parameters
         # self.optimizer = optim.Adam([param for param in self.all_alpha.values()], lr=0.01)  # lr is the learning rate
 
-        # Convert all_alpha to log-space leaf tensors with gradient tracking (constrained on negative alpha of dirichlet)
-        self.all_alpha = {
+        # self.all_alpha = {k: torch.tensor(v, dtype=torch.float32, requires_grad=True) if not isinstance(v, torch.Tensor) else v for k, v in all_alpha.items()}
+
+        # # Convert all_alpha to log-space leaf tensors with gradient tracking (constrained on negative alpha of dirichlet)
+        # self.all_log_alpha = {
+        #     k: torch.log(torch.tensor(v, dtype=torch.float32, requires_grad=True)).clone().detach().requires_grad_(True)
+        #     if not isinstance(v, torch.Tensor) else torch.log(v).clone().detach().requires_grad_(True)
+        #     for k, v in all_alpha.items()
+        # }
+
+        # # Initialize a global optimizer for all log_alpha parameters
+        # self.optimizer = optim.Adam(self.all_log_alpha.values(), lr=self.GD_lr)  # lr is the learning rate
+        # Convert initial_alpha to log-space tensors with gradient tracking
+        self.log_alpha = {
             k: torch.log(torch.tensor(v, dtype=torch.float32, requires_grad=True)).clone().detach().requires_grad_(True)
             if not isinstance(v, torch.Tensor) else torch.log(v).clone().detach().requires_grad_(True)
             for k, v in all_alpha.items()
         }
 
-        # Initialize a global optimizer for all log_alpha parameters
-        self.optimizer = optim.Adam(self.all_alpha.values(), lr=GD_lr)  # lr is the learning rate
+        self.optimizer = torch.optim.Adam(self.log_alpha.values(), lr=self.GD_lr)
 
-
-    def return_alpha(self):
-        """
-        Returns initialized alpha and isoform index for each sample.
-        """
-        return {sample_key: alpha.detach().numpy() for sample_key, alpha in
-                self.all_alpha.items()}, self.all_isoform_indices
 
     def update_alpha(self, max_iterations=10, tolerance=1e-6):
         """
@@ -41,8 +46,8 @@ class DirichletModel:
         previous_loss = float('inf')  # Initialize previous loss as infinity for comparison
         for iteration in range(max_iterations):
             self.optimizer.zero_grad()  # Clear the gradients from the previous step
-            #log_likelihood = self.compute_log_likelihood_ExpLogTheta() # (AT)
-            log_likelihood = self.compute_log_likelihood_LogTheta() # (AT)
+            log_likelihood = self.compute_log_likelihood_ExpLogTheta() # (AT)
+            #log_likelihood = self.compute_log_likelihood_LogTheta() # (AT)
             loss = -log_likelihood  # We want to maximize log likelihood, hence minimize the negative log likelihood
             loss.backward()  # Compute the gradient of the loss w.r.t. the parameters (alpha)
             self.optimizer.step()  # Perform a gradient descent step to update alpha
@@ -59,7 +64,7 @@ class DirichletModel:
             print(f"GD_Current_Loss = {loss.item()}")
         
         # After updating self.log_alpha, convert to non-log space and non-tensor
-        alpha_nontensor = {k: torch.exp(v).item() for k, v in self.all_alpha.items()}
+        alpha_nontensor = {k: torch.exp(v).item() for k, v in self.log_alpha.items()}
 
         return alpha_nontensor
 
@@ -72,13 +77,14 @@ class DirichletModel:
         log_likelihood = 0
         # Convert all_theta Counters into a tensor for PyTorch processing
         theta_tensor = self._counters_to_tensor(self.all_theta)
+        all_alpha = {k: torch.exp(v) for k, v in self.log_alpha.items()}
 
         # Compute the log likelihood
-        log_B_alpha = torch.sum(torch.lgamma(torch.tensor(list(self.all_alpha.values())))) - torch.lgamma(torch.sum(torch.tensor(list(self.all_alpha.values()))))
+        log_B_alpha = torch.sum(torch.lgamma(torch.tensor(list(all_alpha.values())))) - torch.lgamma(torch.sum(torch.tensor(list(all_alpha.values()))))
         log_likelihood = -log_B_alpha  # we need log(1/B(alpha))
 
         for sample_key, isoform_dict in theta_tensor.items():  # Loop over each sample
-            for isoform, alpha_i in self.all_alpha.items():  # Loop over each alpha_i
+            for isoform, alpha_i in all_alpha.items():  # Loop over each alpha_i
                 # Handle case where isoform is not in the isoform_dict or theta_value is zero
                 theta_value = isoform_dict.get(isoform, torch.tensor(1e-10, dtype=torch.float32))
                 temp_val = (alpha_i - 1) * torch.log(theta_value + 1e-10)
@@ -99,15 +105,17 @@ class DirichletModel:
         log_likelihood = 0
         # Convert all_theta Counters into a tensor for PyTorch processing
         theta_tensor = self._counters_to_tensor(self.expectation_log_theta)
+        all_alpha = {k: torch.exp(v) for k, v in self.log_alpha.items()}
+        
 
         # Compute the log likelihood
-        log_B_alpha = torch.sum(torch.lgamma(torch.tensor(list(self.all_alpha.values())))) - torch.lgamma(torch.sum(torch.tensor(list(self.all_alpha.values()))))
+        log_B_alpha = torch.sum(torch.lgamma(torch.tensor(list(all_alpha.values())))) - torch.lgamma(torch.sum(torch.tensor(list(all_alpha.values()))))
         log_likelihood = -log_B_alpha  # we need log(1/B(alpha))
 
         for sample_key, isoform_dict in theta_tensor.items():  # Loop over each sample
-            for isoform, alpha_i in self.all_alpha.items():  # Loop over each alpha_i
+            for isoform, alpha_i in all_alpha.items():  # Loop over each alpha_i
                 # Handle case where isoform is not in the isoform_dict or theta_value is zero
-                theta_value = isoform_dict.get(isoform, torch.tensor(1e-10, dtype=torch.float32))
+                theta_value = isoform_dict.get(isoform, torch.tensor(-1e10, dtype=torch.float32))
                 temp_val = (alpha_i - 1) * (theta_value + 1e-10)
                 if torch.isnan(temp_val).any():
                     print('nan')
@@ -130,7 +138,7 @@ class DirichletModel:
         dict: Nested dictionary where the outer keys are sample names and inner keys are isoform names with theta values as tensors.
         """
         # Use alpha to get all unique isoform names
-        isoforms = sorted(list(self.all_alpha.keys()))
+        isoforms = sorted(list(self.initial_alpha.keys()))
 
         # Prepare the result dictionary
         result_dict = {}

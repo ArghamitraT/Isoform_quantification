@@ -42,8 +42,8 @@ class Expec_Max:
             sec_scoring_threshold: float = 0.95,
             sec_scoring_value: str = "alignment_score",
             convergence_target: float = 0.001,
-            #convergence_target: float = 0.009,
-            max_em_rounds: int = 100, ##(AT)
+            #convergence_target: float = 0.009, ##(AT)
+            max_em_rounds: int = 100, 
             #max_em_rounds: int = 10, ##(AT)
             extra_tx_info: bool = False,
             primary_score: str = "alignment_score",
@@ -51,7 +51,7 @@ class Expec_Max:
             max_dist_5_prime: int = -1,
             verbose: bool = False,
             quiet: bool = False,
-            alpha_initial: float = 10000000, #(AT)
+            alpha_initial: float = 1, 
             GD_lr = 0.01
     ):
         """
