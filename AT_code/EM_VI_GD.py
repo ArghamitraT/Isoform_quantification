@@ -12,12 +12,14 @@ import pandas as pd
 from tqdm import tqdm
 import hashlib
 import pickle
-from DirichletOptimizer import DirichletModel
 import numpy as np
 from scipy.special import psi, gammaln
 import time
 import pickle
 from scipy.stats import spearmanr
+#from DirichletOptimizer import DirichletModel # (AT)
+from dirichlet_pyro import DirichletModel
+
 
 # Local imports
 from NanoCount.Read import Read

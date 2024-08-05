@@ -11,22 +11,6 @@ class DirichletModel:
         self.GD_lr = GD_lr
         self.initial_alpha = all_alpha
 
-        # self.all_alpha = {k: torch.tensor(v, dtype=torch.float32, requires_grad=True) if not isinstance(v, torch.Tensor) else v for k, v in all_alpha.items()}
-       
-        # # Initialize a global optimizer for all alpha parameters
-        # self.optimizer = optim.Adam([param for param in self.all_alpha.values()], lr=0.01)  # lr is the learning rate
-
-        # self.all_alpha = {k: torch.tensor(v, dtype=torch.float32, requires_grad=True) if not isinstance(v, torch.Tensor) else v for k, v in all_alpha.items()}
-
-        # # Convert all_alpha to log-space leaf tensors with gradient tracking (constrained on negative alpha of dirichlet)
-        # self.all_log_alpha = {
-        #     k: torch.log(torch.tensor(v, dtype=torch.float32, requires_grad=True)).clone().detach().requires_grad_(True)
-        #     if not isinstance(v, torch.Tensor) else torch.log(v).clone().detach().requires_grad_(True)
-        #     for k, v in all_alpha.items()
-        # }
-
-        # # Initialize a global optimizer for all log_alpha parameters
-        # self.optimizer = optim.Adam(self.all_log_alpha.values(), lr=self.GD_lr)  # lr is the learning rate
         # Convert initial_alpha to log-space tensors with gradient tracking
         self.log_alpha = {
             k: torch.log(torch.tensor(v, dtype=torch.float32, requires_grad=True)).clone().detach().requires_grad_(True)
