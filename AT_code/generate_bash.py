@@ -19,7 +19,7 @@ def create_job_dir(dir="", fold_name = ""):
 #job_path = create_job_dir(fold_name="job")
 
 ### it calls the .py file
-def create_prg_file(python_file_path, prg_file_path, output_file_path, input_file_names, l0=0, l1=0, l2=0, l3=0):
+def create_prg_file(python_file_path, prg_file_path, output_file_path, input_file_names, alpha_initial, GD_lr):
    
     # header = f"#!/bin/bash\n" + \
     # "module purge\n" + \
@@ -31,8 +31,8 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
     "set -e\n" + \
     "cd $HOME\n" + \
     "source ~/.bashrc\n" + \
-    "conda activate NanoCount_4\n" + \
-    f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]}"
+    "conda activate NanoCount_5\n" + \
+    f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr}"
     
     """ **CHANGE (AT)** THE PREVIOUS LINE """
 
@@ -56,29 +56,12 @@ def gen_dir():
 
 def create_slurm_file(prg_file_path, job_name, slurm_file_path):
 
-    # header = f"#!/bin/bash\n" + \
-    # "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
-    # "#SBATCH --export=NONE                #Do not propagate environment\n" + \
-    # "#SBATCH --get-user-env=L             #Replicate login environment\n" + \
-    # "##NECESSARY JOB SPECIFICATIONS\n" + \
-    # f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
-    # "#SBATCH --time=65:00:00              #Set the wall clock limit to 1hr and 30min\n" + \
-    # "##SBATCH --time=45:00              #Set the wall clock limit to 1hr and 30min **CHANGE (AT)**\n" + \
-    # "#SBATCH --ntasks=48                   #Request 1 task\n" + \
-    # "#SBATCH --mem=180000M                  #Request 2560MB (2.5GB) per node **CHANGE (AT)**\n" + \
-    # f"#SBATCH --output={output_dir}/out_{job_name}.%j      #Send stdout/err to\n" + \
-    # "#SBATCH --gres=gpu:a100:2                    #Request 2 GPU per node can be 1 or 2 \n" + \
-    # "##OPTIONAL JOB SPECIFICATIONS\n" + \
-    # "#SBATCH --account=132755309533             #Set billing account to 123456\n" + \
-    # "##SBATCH --mail-type=ALL              #Send email on all job events\n" + \
-    # f"{prg_file_path}"
-
     header = f"#!/bin/bash\n" + \
     "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
     "##NECESSARY JOB SPECIFICATIONS\n" + \
     f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
-    "#SBATCH --time=48:45:00              #Set the wall clock limit to 1hr and 30min **CHANGE (AT)**\n" + \
-    "#SBATCH --mem=128G              \n" + \
+    "#SBATCH --time=50:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
+    "#SBATCH --mem=256G              \n" + \
     "#SBATCH --cpus-per-task=8                   \n" + \
     "#SBATCH --mail-type=END,FAIL    \n" + \
     f"#SBATCH --output={output_dir}/out_{job_name}.%j      #Send stdout/err to\n" + \
@@ -104,28 +87,19 @@ def get_file_name(kind, l0=0, l1=0, l2=0, l3=0, ext=True):
 #main_data_dir = create_job_dir(dir = "", fold_name="terra_output_afterMLSB_ASA")
 
 # **** the first element should be LR, the second should be SR ****
-# samples_file_names = [['ds_2_aln_01_long.bam', 'aln_02_short.bam'], 
-#                       ['ds_2_aln_02_long.bam', 'aln_01_short.bam'],
-#                       ['ds_8_aln_01_long.bam', 'aln_02_short.bam'], 
-#                       ['ds_8_aln_02_long.bam', 'aln_01_short.bam'],
-#                       ['ds_5_num1_aln_01_long.bam', 'aln_02_short.bam'], 
-#                       ['ds_5_num1_aln_02_long.bam', 'aln_01_short.bam'],
-#                       ['ds_10_num1_aln_01_long.bam', 'aln_02_short.bam'], 
-#                       ['ds_10_num1_aln_02_long.bam', 'aln_01_short.bam']]
-
-# samples_file_names = [['ds_10_aln_01_long.bam', 'aln_02_short.bam'], 
-#                       ['ds_10_aln_02_long.bam', 'aln_01_short.bam'],
-#                       ['ds_2_aln_01_long.bam', 'aln_02_short.bam'], 
-#                       ['ds_2_aln_02_long.bam', 'aln_01_short.bam'],
-#                       ['ds_8_aln_01_long.bam', 'aln_02_short.bam'], 
-#                       ['ds_8_aln_02_long.bam', 'aln_01_short.bam'],
-#                       ['aln_01_short.bam', 'aln_02_short.bam'],
-#                       ['aln_02_short.bam', 'aln_01_short.bam']]
-samples_file_names = [['ds_10_aln_01_long.bam', 'aln_02_short.bam']]
+#samples_file_names = [['ds_10_aln_01_long.bam', 'aln_02_short.bam']]
+samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'], 
+                      ['ds_10_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'],
+                      ['ds_2_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam'], 
+                      ['ds_10_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam'],
+                      ['ds_5_num1_aln_03_long.bam', 'ds_100_num1_aln_03_short.bam'], 
+                      ['ds_10_num1_aln_03_long.bam', 'ds_100_num1_aln_03_short.bam']]
 
 
 #samples_file_names = [['ds_5_aln_01_long.bam', 'aln_02_short.bam']]
-other_script_names = ['EM_VI_GD.py', 'DirichletOptimizer.py']
+
+# (AT)
+other_script_names = ['EM_VI_GD.py', 'dirichlet_pyro.py', 'DirichletOptimizer.py']
 output_file_name = "output_PacIllu_VIGD_"
 
 main_data_dir = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
@@ -150,7 +124,7 @@ def create_readme():
     readme = open(name, "a")
 
     """ **CHANGE (AT)** WRITE THE COMMENT"""
-    comment = f"Alpha correctly assigned, running SIRV for 100 loops. "
+    comment = f"Changed implementation (new implementation) to torch GD, looks like the alpha is increasing. Now let me see PacBio and Illumina sample for 25 epochs."
 
 
     readme.write(comment)
@@ -162,37 +136,46 @@ def gen_combination():
 
     """ **CHANGE (AT)** X0, X1, X2, NAME """
     for name in ['main_EM_VI_GD.py']:
-        for set in samples_file_names:                     #x0, l0 -> is step size
-        # for x0 in [0.0001]:                     #x0, l0 -> is step size
-        #     for x1 in [0.0001]:                                  #x1, l1 -> is l1 or l2
-        #         for x2 in [1, 2, 3, 4]:                          #x2, l2 -> is GATlayer
-        #             for x3 in [0.1, 0.2]:              #x3, l3 -> is dropout
-            kind = name.split('_')[0]
-            # python_file_path = os.path.join(os.getcwd(), name)
-            # utility_file_path = os.path.join(os.getcwd(), "pretrain_utils_1.py")
-            python_file_path = os.path.join(code_dir, name)
-            #utility_file_path = os.path.join(os.getcwd(), "pretrain_utils_1.py")
+        for set in samples_file_names:                     
+            for alpha_val in [10, 10000, 10000000, 10000000000]:   #(AT)s
+                for GDlr_val in [0.01]:     
+
+                    kind = name.split('_')[0]
+                    # python_file_path = os.path.join(os.getcwd(), name)
+                    # utility_file_path = os.path.join(os.getcwd(), "pretrain_utils_1.py")
+                    python_file_path = os.path.join(code_dir, name)
+                    #utility_file_path = os.path.join(os.getcwd(), "pretrain_utils_1.py")
 
 
-            hash_obj = random.getrandbits(25)
-            
-            prg_file_path = os.path.join(job_path, get_file_name(kind= f"prg_{kind}_{hash_obj}"))
-            slurm_file_path = os.path.join(job_path, get_file_name(kind= f"slurm_{kind}_{hash_obj}"))
-            #output_file_path = os.path.join(output_dir, f"output_PacIllu_VIGD_{hash_obj}")
-            output_file_path = os.path.join(output_dir, f"{output_file_name}{hash_obj}")
-            create_prg_file(python_file_path=python_file_path, prg_file_path=prg_file_path, output_file_path=output_file_path, input_file_names=set)
-            create_slurm_file(prg_file_path=prg_file_path, job_name=get_file_name(kind=f"{kind}_{hash_obj}", ext=False), slurm_file_path=slurm_file_path)
+                    hash_obj = random.getrandbits(25)
+                    
+                    prg_file_path = os.path.join(job_path, get_file_name(kind= f"prg_{kind}_{hash_obj}"))
+                    slurm_file_path = os.path.join(job_path, get_file_name(kind= f"slurm_{kind}_{hash_obj}"))
+                    output_file_path = os.path.join(output_dir, f"{output_file_name}{hash_obj}")
+                    
+                    # create_prg_file(python_file_path=python_file_path, prg_file_path=prg_file_path, output_file_path=output_file_path, input_file_names=set, alpha_initial=alpha_val)
+                    create_prg_file(python_file_path=os.path.join(data_dir, name), 
+                                    prg_file_path=prg_file_path, 
+                                    output_file_path=output_file_path, 
+                                    input_file_names=set, 
+                                    alpha_initial=alpha_val, 
+                                    GD_lr= GDlr_val)
+                    
+                    
+                    create_slurm_file(prg_file_path=prg_file_path, 
+                                      job_name=get_file_name(kind=f"{kind}_{hash_obj}", ext=False), 
+                                      slurm_file_path=slurm_file_path)
 
-            os.system(f"cp {python_file_path} {data_dir}")
-            for script in other_script_names:
-                script_dir = os.path.join(code_dir, script)
-                os.system(f"cp {script_dir} {data_dir}")
+                    os.system(f"cp {python_file_path} {data_dir}")
+                    for script in other_script_names:
+                        script_dir = os.path.join(code_dir, script)
+                        os.system(f"cp {script_dir} {data_dir}")
 
-            # #os.system(f"cp {utility_file_path} {data_dir}")
-            ## (AT)
-            os.system(f"chmod u+x {prg_file_path}")
-            os.system(f"chmod u+x {slurm_file_path}")
-            os.system(f"sbatch {slurm_file_path}")
+                    # #os.system(f"cp {utility_file_path} {data_dir}")
+                    ## (AT)
+                    os.system(f"chmod u+x {prg_file_path}")
+                    os.system(f"chmod u+x {slurm_file_path}")
+                    os.system(f"sbatch {slurm_file_path}")
                     
 
 def main():
@@ -206,4 +189,25 @@ if __name__ == "__main__":
 MAY NEED LATER
 #main_data_dir = os.path.join(pro_dir, "./terra_output_task2_WrmS/")
 python_file_path = "/scratch/user/arghamitra.talukder/WORK/PPI/task2_iSqnc_oRr.py"
+
+
+
+
+# header = f"#!/bin/bash\n" + \
+    # "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
+    # "#SBATCH --export=NONE                #Do not propagate environment\n" + \
+    # "#SBATCH --get-user-env=L             #Replicate login environment\n" + \
+    # "##NECESSARY JOB SPECIFICATIONS\n" + \
+    # f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
+    # "#SBATCH --time=65:00:00              #Set the wall clock limit to 1hr and 30min\n" + \
+    # "##SBATCH --time=45:00              #Set the wall clock limit to 1hr and 30min **CHANGE (AT)**\n" + \
+    # "#SBATCH --ntasks=48                   #Request 1 task\n" + \
+    # "#SBATCH --mem=180000M                  #Request 2560MB (2.5GB) per node **CHANGE (AT)**\n" + \
+    # f"#SBATCH --output={output_dir}/out_{job_name}.%j      #Send stdout/err to\n" + \
+    # "#SBATCH --gres=gpu:a100:2                    #Request 2 GPU per node can be 1 or 2 \n" + \
+    # "##OPTIONAL JOB SPECIFICATIONS\n" + \
+    # "#SBATCH --account=132755309533             #Set billing account to 123456\n" + \
+    # "##SBATCH --mail-type=ALL              #Send email on all job events\n" + \
+    # f"{prg_file_path}"
+
 """

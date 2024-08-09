@@ -17,8 +17,10 @@ from scipy.special import psi, gammaln
 import time
 import pickle
 from scipy.stats import spearmanr
-#from DirichletOptimizer import DirichletModel # (AT)
-from dirichlet_pyro import DirichletModel
+from contextlib import redirect_stdout
+
+from DirichletOptimizer import DirichletModel # (AT)
+#from dirichlet_pyro import DirichletModel
 
 
 # Local imports
@@ -44,9 +46,8 @@ class Expec_Max:
             sec_scoring_threshold: float = 0.95,
             sec_scoring_value: str = "alignment_score",
             convergence_target: float = 0.001,
-            #convergence_target: float = 0.009, ##(AT)
-            max_em_rounds: int = 100, 
-            #max_em_rounds: int = 10, ##(AT)
+            #max_em_rounds: int = 100, 
+            max_em_rounds: int = 25, ##(AT)
             extra_tx_info: bool = False,
             primary_score: str = "alignment_score",
             max_dist_3_prime: int = 50,
@@ -54,7 +55,8 @@ class Expec_Max:
             verbose: bool = False,
             quiet: bool = False,
             alpha_initial: float = 1, 
-            GD_lr = 0.01
+            GD_lr = 0.01,
+            process='expectation_log_theta' #(AT) 'expectation_log_theta' or 'log_expectation_theta'
     ):
         """
         NOTE: File file does not use any hashing and runs EM on both ambiguous and unambiguous reads. This can be improved in future
@@ -134,6 +136,13 @@ class Expec_Max:
         self.elbo = {}
         self.alpha_initial = alpha_initial
         self.GD_lr = GD_lr
+        self.process=process
+
+        # Path to the log file
+        log_file_path = 'output_log.txt'
+
+        # with open(log_file_path, 'w') as log_file:
+        #     with redirect_stdout(log_file):
 
         self.log.warning("Initialise Nanocount")
 
@@ -217,7 +226,7 @@ class Expec_Max:
 
         self.all_alpha = self.assign_alpha()
 
-         # COMMENT
+        # COMMENT
         print("Initiation")
 
         # find out the reads mathced to more than 1 isoform
@@ -238,8 +247,9 @@ class Expec_Max:
         # ) as pbar:
 
         # Initialize the Dirichlet optimizer with the theta data
-        dirichlet_optimizer = DirichletModel(self.all_theta, self.all_alpha, self.expectation_log_theta, self.GD_lr)
-
+        # dirichlet_optimizer = DirichletModel(self.all_theta, self.all_alpha, self.expectation_log_theta, self.GD_lr, self.process)
+        dirichlet_optimizer = DirichletModel(self.all_alpha, self.GD_lr, self.process)
+        
         # filename for saving variables
         token = (self.count_file.split('/')[-1]).split('_')[-1]
         model_save_path = '/'.join(self.count_file.split('/')[:-3])+'/weights/'
@@ -247,8 +257,8 @@ class Expec_Max:
 
         """ EM and Gradient descent """
         # Iterate until convergence threshold or max EM round are reached
-        while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: ## (AT)
-        #while self.em_round < self.max_em_rounds:
+        #while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: ## (AT)
+        while self.em_round < self.max_em_rounds:
             self.convergence = 0
             self.em_round += 1
 
@@ -267,7 +277,9 @@ class Expec_Max:
 
 
             # UPDATE ALPHA (AT)
-            self.all_alpha = dirichlet_optimizer.update_alpha()
+            self.all_alpha = dirichlet_optimizer.update_alpha(expectation_log_theta=self.expectation_log_theta, 
+                                                              all_theta=self.all_theta)
+            
             print("alpha_summation ", np.sum(list(self.all_alpha.values())))
             self.convergence = self.convergence/sample_num
             self.log.info("EM_loop {}".format(self.em_round))
@@ -294,7 +306,7 @@ class Expec_Max:
         if not self.convergence <= self.convergence_target:
             self.log.error(
                 "Convergence target ({}) could not be reached after {} rounds".format(self.convergence_target,
-                                                                                      self.max_em_rounds))
+                                                                                    self.max_em_rounds))
     
         # Write out results
         self.log.warning("Summarize data")
@@ -324,7 +336,7 @@ class Expec_Max:
 
             # The output file could be named according to the sample
             file_name = (self.count_file + '_' + sample + '_' +
-                         self.file_names_list[indx].split('/')[-1].split('.')[0])
+                        self.file_names_list[indx].split('/')[-1].split('.')[0])
             
             file_name_timestamp = self.create_image_name(file_name, format="")
             count_file = f"{file_name_timestamp}.tsv" if self.count_file else None
@@ -384,17 +396,6 @@ class Expec_Max:
         if comparison_criteria == 'theta1_alpha' or comparison_criteria == 'theta2_alpha':
             model_weight2['tpm'] = model_weight2['tpm'] / model_weight2['tpm'].sum()
 
-
-        print()
-        # tpm_sum = our_quant['tpm'].sum()
-        # our_quant['tpm'] = our_quant['tpm'] / tpm_sum
-
-        # # Load ground truth data from CSV file
-        # ground_truth = pd.read_csv(ground_truth_path)
-
-        # # Clean the isoform names in our_quant to match the naming convention in ground_truth
-        # our_quant['cleaned_name'] = our_quant['transcript_name'].str.replace(r'\(\+\)|\(\-\)', '', regex=True)
-
         # Initialize lists to store matched TPM and molarity values
         matched_tpm = []
         matched_molarity = []
@@ -411,8 +412,8 @@ class Expec_Max:
             # If a matching isoform is found in second variable
             if len(molarity_value) > 0:
                 # Append the tpm and molarity to the respective lists
-                matched_tpm.append(np.log(tpm_value + 1))
-                matched_molarity.append(np.log(molarity_value[0]+1))  # Take the first match in case of multiple
+                matched_tpm.append(np.log(tpm_value * 1000000  + 1))
+                matched_molarity.append(np.log(molarity_value[0]* 1000000+1))  # Take the first match in case of multiple
 
         # Calculate Spearman's correlation using the matched lists
         correlation, p_value = spearmanr(matched_tpm, matched_molarity)
@@ -447,13 +448,17 @@ class Expec_Max:
 
         # Calculate the first component: \sum_{n=1}^{N} \sum_{m=1}^{M} \phi_{nm} \left( \log \frac{p_{nm}}{\phi_{nm}} + \psi(\alpha_m) - \psi\left(\sum_{m=1}^{M} \alpha_m'\right) \right)
         sum_alpha_prime = sum(alpha_prime.values())
+        # Define a small value
+        epsilon = 1e-10
+
         for n, phi_n in Phi_nm.items():
             for m, phi_nm in phi_n.items():
                 p_nm = Pnm[n][m]
+                phi_nm_adjusted = phi_nm if phi_nm != 0 else epsilon # Adjust phi_nm to avoid zero values
                 try:
-                    elbo += phi_nm * (np.log(p_nm / phi_nm) + expectation_log_theta[m])
-                except:
-                    print()
+                    elbo += phi_nm * (np.log(p_nm / phi_nm_adjusted) + expectation_log_theta[m])
+                except Exception as e:
+                    print(f"Exception encountered: {e} for isoform {m} and read {n}")
                 if np.isnan(elbo):
                     raise ValueError(f"NaN encountered in first component for isoform {m} and read {n}")
 

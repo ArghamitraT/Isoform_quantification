@@ -1,144 +1,82 @@
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-
+import numpy as np
 
 
 class DirichletModel:
-    def __init__(self, all_theta, all_alpha, expectation_log_theta, GD_lr):
-        self.all_theta = all_theta
-        self.expectation_log_theta = expectation_log_theta
+    #def __init__(self, all_theta, all_alpha, expectation_log_theta, GD_lr, process='expectation_log_theta'):
+    def __init__(self, all_alpha, GD_lr, process='expectation_log_theta'):
+    
+        
+        # Convert the dictionaries to tensors
+        self.isoforms = list(all_alpha.keys())
+        self.process = process
+        self.alpha = torch.tensor(([all_alpha[isoform] for isoform in self.isoforms]), dtype=torch.float32)
         self.GD_lr = GD_lr
-        self.initial_alpha = all_alpha
+        self.log_alpha = torch.tensor(np.log([all_alpha[isoform] for isoform in self.isoforms]), dtype=torch.float32, requires_grad=True)
 
-        # Convert initial_alpha to log-space tensors with gradient tracking
-        self.log_alpha = {
-            k: torch.log(torch.tensor(v, dtype=torch.float32, requires_grad=True)).clone().detach().requires_grad_(True)
-            if not isinstance(v, torch.Tensor) else torch.log(v).clone().detach().requires_grad_(True)
-            for k, v in all_alpha.items()
-        }
+        # Optimizer
+        self.optimizer = optim.Adam([self.log_alpha], lr=self.GD_lr)
 
-        self.optimizer = torch.optim.Adam(self.log_alpha.values(), lr=self.GD_lr)
-
-
-    def update_alpha(self, max_iterations=10, tolerance=1e-6):
+    def update_alpha(self, expectation_log_theta, all_theta, max_iterations=10, tolerance=1e-6,):
         """
         Gradient Descent of alpha considering all samples with convergence criteria.
         :param max_iterations: int, maximum number of iterations to perform
         :param tolerance: float, tolerance to determine convergence (stop if change in loss is below this threshold)
         """
-        previous_loss = float('inf')  # Initialize previous loss as infinity for comparison
-        for iteration in range(max_iterations):
-            self.optimizer.zero_grad()  # Clear the gradients from the previous step
-            log_likelihood = self.compute_log_likelihood_ExpLogTheta() # (AT)
-            #log_likelihood = self.compute_log_likelihood_LogTheta() # (AT)
-            loss = -log_likelihood  # We want to maximize log likelihood, hence minimize the negative log likelihood
-            loss.backward()  # Compute the gradient of the loss w.r.t. the parameters (alpha)
-            self.optimizer.step()  # Perform a gradient descent step to update alpha
+        # Create the tensor for expectation_log_theta
+        epsilon = 1e-10
+        if self.process == 'expectation_log_theta':
+            self.data = torch.tensor(
+                [
+                    [sample.get(isoform, np.log(epsilon)) for isoform in self.isoforms] 
+                    for sample in expectation_log_theta.values()
+                ], 
+                dtype=torch.float32)
+        # Create the tensor for log_expectation_theta
+        elif self.process == 'log_expectation_theta':
+            self.data = torch.tensor(
+                [
+                    [sample.get(isoform, epsilon) for isoform in self.isoforms] 
+                    for sample in all_theta.values()
+                ], 
+                dtype=torch.float32)
             
-            # Check for convergence: if the change in loss is less than the tolerance, stop the loop
-            if abs(previous_loss - loss.item()) < tolerance:
-                print(f"GD Convergence reached after {iteration + 1} iterations.")
-                break
-            previous_loss = loss.item()  # Update previous loss to current loss
+        num_iterations = max_iterations
+        for iteration in range(num_iterations):
+            self.optimizer.zero_grad()
+
+            # Transform log_alpha back to alpha
+            alpha = torch.exp(self.log_alpha)
             
-            # Optionally, print the current loss every few iterations to monitor progress
-            #if iteration % 100 == 0:
+            # Calculate log-likelihood
+            ll = self.log_likelihood(self.data, alpha)
+            
+            # Since we want to maximize the log-likelihood, we minimize the negative log-likelihood
+            loss = -ll
+            
+            # Backpropagation
+            loss.backward()
+            
+            # Gradient descent step
+            self.optimizer.step()
+
             print(f"GD_Iteration {iteration}")
             print(f"GD_Current_Loss = {loss.item()}")
-        
+
         # After updating self.log_alpha, convert to non-log space and non-tensor
-        alpha_nontensor = {k: torch.exp(v).item() for k, v in self.log_alpha.items()}
+        alpha_nontensor = {self.isoforms[i]: torch.exp(self.log_alpha[i]).item() for i in range(len(self.isoforms))}
 
         return alpha_nontensor
-
-
-
-    def compute_log_likelihood_LogTheta(self):
-        """
-        Calculates the log PDF of Dirichlet function considering all samples.
-        """
-        log_likelihood = 0
-        # Convert all_theta Counters into a tensor for PyTorch processing
-        theta_tensor = self._counters_to_tensor(self.all_theta)
-        all_alpha = {k: torch.exp(v) for k, v in self.log_alpha.items()}
-
-        # Compute the log likelihood
-        log_B_alpha = torch.sum(torch.lgamma(torch.tensor(list(all_alpha.values())))) - torch.lgamma(torch.sum(torch.tensor(list(all_alpha.values()))))
-        log_likelihood = -log_B_alpha  # we need log(1/B(alpha))
-
-        for sample_key, isoform_dict in theta_tensor.items():  # Loop over each sample
-            for isoform, alpha_i in all_alpha.items():  # Loop over each alpha_i
-                # Handle case where isoform is not in the isoform_dict or theta_value is zero
-                theta_value = isoform_dict.get(isoform, torch.tensor(1e-10, dtype=torch.float32))
-                temp_val = (alpha_i - 1) * torch.log(theta_value + 1e-10)
-                if torch.isnan(temp_val).any():
-                    print('nan')
-                    log_likelihood += (alpha_i - 1) * torch.log(torch.zeros(1).squeeze(0) + 1e-10)
-                else:
-                    log_likelihood += temp_val
-
-        return log_likelihood
     
-
-
-    def compute_log_likelihood_ExpLogTheta(self):
-        """
-        Calculates the log PDF of Dirichlet function considering all samples.
-        """
-        log_likelihood = 0
-        # Convert all_theta Counters into a tensor for PyTorch processing
-        theta_tensor = self._counters_to_tensor(self.expectation_log_theta)
-        all_alpha = {k: torch.exp(v) for k, v in self.log_alpha.items()}
+    def log_likelihood(self, data, alpha):
+        term1 = torch.lgamma(torch.sum(alpha))
+        term2 = torch.sum(torch.lgamma(alpha))
+        if self.process == 'expectation_log_theta':
+            term3 = torch.sum((alpha - 1) * data, dim=1)
+        elif self.process == 'log_expectation_theta':
+            term3 = torch.sum((alpha - 1) * torch.log(data), dim=1)
         
-
-        # Compute the log likelihood
-        log_B_alpha = torch.sum(torch.lgamma(torch.tensor(list(all_alpha.values())))) - torch.lgamma(torch.sum(torch.tensor(list(all_alpha.values()))))
-        log_likelihood = -log_B_alpha  # we need log(1/B(alpha))
-
-        for sample_key, isoform_dict in theta_tensor.items():  # Loop over each sample
-            for isoform, alpha_i in all_alpha.items():  # Loop over each alpha_i
-                # Handle case where isoform is not in the isoform_dict or theta_value is zero
-                theta_value = isoform_dict.get(isoform, torch.tensor(-1e10, dtype=torch.float32))
-                temp_val = (alpha_i - 1) * (theta_value + 1e-10)
-                if torch.isnan(temp_val).any():
-                    print('nan')
-                    log_likelihood += (alpha_i - 1) * (torch.zeros(1).squeeze(0) + 1e-10)
-                else:
-                    log_likelihood += temp_val
-
-        return log_likelihood
-
-    
-    
-    def _counters_to_tensor(self, all_theta):
-        """
-        Convert all_theta (a dictionary of Counters) to a nested dictionary with tensors.
-        
-        Parameters:
-        all_theta (dict): Dictionary where keys are sample names and values are Counters of isoforms and their theta values.
-
-        Returns:
-        dict: Nested dictionary where the outer keys are sample names and inner keys are isoform names with theta values as tensors.
-        """
-        # Use alpha to get all unique isoform names
-        isoforms = sorted(list(self.initial_alpha.keys()))
-
-        # Prepare the result dictionary
-        result_dict = {}
-
-        # Iterate over each sample and convert its Counter to a dictionary of isoform: theta_value pairs
-        for sample_key, counter in all_theta.items():
-            # Initialize a dictionary for the current sample
-            sample_dict = {}
-
-            # Fill in the dictionary with the theta values from the Counter
-            for isoform in isoforms:
-                theta_value = counter.get(isoform, torch.tensor(float(torch.finfo(torch.float).tiny)))
-                sample_dict[isoform] = torch.tensor(theta_value, dtype=torch.float32)
-
-            # Add the sample dictionary to the result dictionary
-            result_dict[sample_key] = sample_dict
-
-        return result_dict
+        return term1 - term2 + term3.mean()
 

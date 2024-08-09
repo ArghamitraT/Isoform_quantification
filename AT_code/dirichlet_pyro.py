@@ -31,7 +31,6 @@ class DirichletModel:
             # pyro.sample("obs", dist.Dirichlet(alpha).expand_by([len(theta)]).to_event(1), obs=theta)
 
         
-
     def guide(self, theta):
         sorted_isoforms = sorted(self.initial_alpha.keys())
         alpha_q = torch.stack([
@@ -66,7 +65,7 @@ class DirichletModel:
 
             # Optionally, print the current loss every few iterations to monitor progress
             print(f"GD_Iteration {iteration}")
-            print(f"GD_Current_Loss = {loss}")
+            print(f"GD_Current_Loss = {-loss}")
 
         # After updating self.alpha, convert to non-log space and non-tensor
         # Convert alpha_q to a dictionary and return
@@ -104,10 +103,11 @@ class DirichletModel:
 
 # Example usage
 # all_theta = {
-#     'sample1': {'isoform1': 0.2, 'isoform2': 0.3, 'isoform3': 0.5},  # Example with three isoforms
-#     'sample2': {'isoform1': 0.1, 'isoform2': 0.4, 'isoform3': 0.5}
+#     'sample1': {'isoform1': 0.2, 'isoform2': 0.5, 'isoform3': 0.3},  # Example with three isoforms
+#     'sample2': {'isoform1': 0.1, 'isoform2': 0.3, 'isoform3': 0.6},
+#     'sample3': {'isoform1': 0.3, 'isoform2': 0.4, 'isoform3': 0.3}
 # }
-# all_alpha = {'isoform1': 0.5, 'isoform2': 0.5, 'isoform3': 0.5}  # Dictionary of initial alpha values
+# all_alpha = {'isoform1': 1, 'isoform2': 1, 'isoform3': 1}  # Dictionary of initial alpha values
 # expectation_log_theta = None
 # GD_lr = 0.01
 

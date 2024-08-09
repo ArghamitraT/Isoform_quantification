@@ -14,24 +14,6 @@ def find_log_file_paths(main_dir, experiment_file):
     return log_file_paths
 
 
-# def parse_log_file(log_file_path, variables):
-#     with open(log_file_path, 'r') as file:
-#         lines = file.readlines()
-#
-#     # Initialize a dictionary to store regular expressions and corresponding data lists
-#     data = {var: [] for var in variables}
-#     regex_patterns = {var: re.compile(f'{var} ([\\d.-]+)') for var in variables}
-#
-#     # Parse the file line by line
-#     for line in lines:
-#         for var, regex in regex_patterns.items():
-#             match = regex.search(line)
-#             if match:
-#                 data[var].append(float(match.group(1)))
-#
-#     # Create a DataFrame from the parsed data
-#     return pd.DataFrame(data)
-
 
 def parse_log_file(log_file_path, multi_occurrence_vars, single_occurrence_vars):
     with open(log_file_path, 'r') as file:
@@ -127,30 +109,39 @@ def process_file(input_file):
         for line in file:
             # Check if the line contains an iteration
             if 'GD_Iteration' in line:
-                # Extract the iteration number
-                parts = line.split(' ')
-                #iteration_number = int(parts[1])
+                # # Extract the iteration number
+                # parts = line.split(' ')
+                # #iteration_number = int(parts[1])
 
-                iteration_number_str = re.findall(r'\d+', parts[1])[0]  # Extract digits
+                # iteration_number_str = re.findall(r'\d+', parts[1])[0]  # Extract digits
+                # iteration_number = int(iteration_number_str)  # Convert to integer
+
+                # # Update the iteration number based on the base counter
+                # parts[1] = str(base_counter + iteration_number)
+                # # line = ' '.join(parts)
+                # Append the updated iteration number to the iterations list for plotting
+                #iterations.append(base_counter + iteration_number)
+
+                # Extract the iteration number
+                iteration_number_str = re.findall(r'\d+', line)[0]  # Extract digits
                 iteration_number = int(iteration_number_str)  # Convert to integer
 
                 # Update the iteration number based on the base counter
-                parts[1] = str(base_counter + iteration_number)
-                # line = ' '.join(parts)
+                updated_iteration_number = base_counter + iteration_number
 
                 # Append the updated iteration number to the iterations list for plotting
-                iterations.append(base_counter + iteration_number)
+                iterations.append(updated_iteration_number)
 
+
+                
             # Check if the line contains a loss value
             if 'GD_Current_Loss' in line:
-                parts = line.split(' = ')
-                # loss_value = float(parts[1])
-                iteration_number_str = re.findall(r'\d+', parts[1])[0]  # Extract digits
-                loss_value = int(iteration_number_str)  # Convert to integer
-
+                # Extract the loss value, including the negative sign if present
+                loss_value = float(re.findall(r'-?\d+\.\d+', line)[0])
 
                 # Append the loss value to the losses list for plotting
                 losses.append(loss_value)
+
 
             # Check if the iteration number has reached 9 to update the base counter
             if 'GD_Iteration 9' in line:
@@ -180,8 +171,8 @@ def plot_iterations_vs_loss(iterations, losses, experiment_file, main_dir, name)
 
 # Main function to run the entire process
 def main():
-    experiment_file = 'exprmntDummy_2024_07_28__17_38_26'
-    main_dir = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/files/results/'
+    experiment_file = 'exprmntDummy_2024_00_00__00_00_00'
+    main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/'
 
     # Find all log file paths
     log_file_paths = find_log_file_paths(main_dir, experiment_file)
