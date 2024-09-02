@@ -1,4 +1,4 @@
-from EM_VI_GD import Expec_Max
+from EM_VI_GD_together import Expec_Max
 import os
 import argparse
 

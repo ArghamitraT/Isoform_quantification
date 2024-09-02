@@ -149,9 +149,10 @@ class Expec_Max:
 
         if load:
             self.load_state(new_max_em_rounds)
+            print(f"Loaded model state from {self.load_filename}")
         
         else:
-            self.initialize_model()
+            self.initialize_model_merged()
         
         # # Initialize the Dirichlet optimizer with the theta data
         dirichlet_optimizer = DirichletModel(self.all_alpha, self.GD_lr, self.process)
@@ -205,8 +206,8 @@ class Expec_Max:
                 print(f"Convergence_sample_{sample_num} {convergence}")
 
             # UPDATE ALPHA (AT)
-            self.all_alpha, GDloss_history = dirichlet_optimizer.update_alpha(expectation_log_theta=self.expectation_log_theta, 
-                                                              all_theta=self.all_theta)
+            # self.all_alpha, GDloss_history = dirichlet_optimizer.update_alpha(expectation_log_theta=self.expectation_log_theta, 
+            #                                                   all_theta=self.all_theta)
             
             print("alpha_summation ", np.sum(list(self.all_alpha.values())))
             self.convergence = self.convergence/sample_num
@@ -214,18 +215,16 @@ class Expec_Max:
             print(f"EM_convergence {self.convergence}")
 
             # generate model fit correlation
-            spearman_corr_theta1_theta2 = self.spearman_corr('theta1_theta2')
+            #spearman_corr_theta1_theta2 = self.spearman_corr('theta1_theta2')
             spearman_corr_theta1_alpha = self.spearman_corr('theta1_alpha')
-            spearman_corr_theta2_alpha = self.spearman_corr('theta2_alpha')
+            #spearman_corr_theta2_alpha = self.spearman_corr('theta2_alpha')
 
             # Create a DataFrame for the current iteration
             current_stats = pd.DataFrame([{
                 'EM_loop': self.em_round,
                 'Alpha_summation': np.sum(list(self.all_alpha.values())),
                 'EM_convergence': self.convergence,
-                'Spearman_corr_theta1_theta2': spearman_corr_theta1_theta2,
                 'Spearman_corr_theta1_alpha': spearman_corr_theta1_alpha,
-                'Spearman_corr_theta2_alpha': spearman_corr_theta2_alpha,
                 **elbo_values,
                 **convergence_values
             }])
@@ -234,17 +233,17 @@ class Expec_Max:
             stats_df = pd.concat([stats_df, current_stats], ignore_index=True)
 
             # Create a DataFrame for the loss history
-            GDloss_history_current = pd.DataFrame({
-                'GD_Loss': GDloss_history
-            })
+            # GDloss_history_current = pd.DataFrame({
+            #     'GD_Loss': GDloss_history
+            # })
 
             # Append the loss history of the current iteration to the loss history DataFrame
-            GDloss_history_df = pd.concat([GDloss_history_df, GDloss_history_current], ignore_index=True)
+            # GDloss_history_df = pd.concat([GDloss_history_df, GDloss_history_current], ignore_index=True)
 
             # Save the state after each iteration
             stats_df.to_csv(final_EMstat_path, index=False)
-            with open(final_GDloss_path, 'wb') as f:
-                pickle.dump(GDloss_history_df, f)
+            # with open(final_GDloss_path, 'wb') as f:
+            #     pickle.dump(GDloss_history_df, f)
             self.save_state(final_save_path)
         
         end = time.time()
@@ -315,12 +314,14 @@ class Expec_Max:
     def load_state(self,  new_max_em_rounds):
         # with open(self.load_filename, 'rb') as f:
         #     return pickle.load(f)
-        print(f"loading_weights_from {self.load_filename}")
+        print("loading weights")
         with open(self.load_filename, 'rb') as f:
             loaded_obj = pickle.load(f)
             # Update the current instance's __dict__ with the loaded object's __dict__
             self.__dict__.update(loaded_obj.__dict__)
         self.max_em_rounds = new_max_em_rounds
+        print(f"State loaded from {self.load_filename}")
+
         
 
     def create_image_name(self, name, format=".png"):
@@ -767,9 +768,81 @@ class Expec_Max:
         return compatibility_dict, read_isoform_prob
 
 
+    def initialize_model_merged(self):
+        start = time.time()
+        
+        ## Loop over all file names provided and parses the reads with
+        for index, file_name in enumerate(self.file_names_list, start=1):
+            print(f"sample_{index} {file_name}")
+            # Parse the BAM file
+            if index == 1:
+                read_dict_short, ref_len_dict_short = self._parse_bam(file_name=file_name)
+            else:
+                read_dict_long, ref_len_dict_long = self._parse_bam(file_name=file_name)
+        
+        # Merge read_dict_short into read_dict_long
+        for key, value in read_dict_short.items():
+            if key in read_dict_long:
+                read_dict_long[key] += value  # Assuming you want to append the values
+            else:
+                read_dict_long[key] = value
+        # Store the merged dictionary in self.all_read_dicts with the sample key
+        self.all_read_dicts['sample1'] = read_dict_long
+
+        # merging the transcript length for both long and short read
+        if 'ref_len_dict_short' in locals() and 'ref_len_dict_long' in locals():
+            # Merge ref_len_dict_short into ref_len_dict_long, avoiding duplicates
+            for key, value in ref_len_dict_short.items():
+                if key not in ref_len_dict_long:
+                    ref_len_dict_long[key] = value
+
+        # Update self.all_ref_len_dicts with the merged dictionary
+        self.all_ref_len_dicts['sample1'] = ref_len_dict_long
+        # end
+        
+        end = time.time()
+        interval = (end-start)/60
+        print(f"time_parse {interval} min")
+
+        print("parsing done")
+
+        if self.filter_bam_out:
+            print("Write selected alignments to BAM file")
+            self._write_bam()
+
+        """ EXPLANATION
+            * Yri --> Binary Compatibility Matrix
+            * theta --> isoform percentage/abundance/quantity
+            * Phi_ri --> Expectation of A (true asignment) matrix
+            * n --> # of reads for each isoform
+        """
+        
+        # All the initial calculation
+        for sample_key in self.all_read_dicts:
+            self.all_Yri[sample_key], self.all_read_iso_prob[sample_key] = self.get_compatibility_modified(sample_key)
+            self.all_theta[sample_key] \
+                = self.calculate_theta_and_alpha_prime_0(self.all_Yri[sample_key])
+            demo_phi = self.calculate_Z(self.all_Yri[sample_key], self.all_theta[sample_key], self.all_read_iso_prob[sample_key])
+            self.all_Phi_ri[sample_key] = demo_phi
+
+        self.all_alpha = self.assign_alpha()
+
+        # COMMENT
+        print("Initiation")
+
+        # find out the reads mathced to more than 1 isoform
+        # more_than_one = {key: val for key, val in compatibility_dict_long.items() if len(val) > 1}
+
+        # EM loop to calculate abundance and update read-transcript compatibility
+        print("Start EM abundance estimate")
+
+        self.em_round = 0
+        self.convergence = 1
+
+
     def initialize_model(self):
         start = time.time()
-        ##  (AT) UNCOMMENT
+       
         ## Loop over all file names provided and parses the reads with
         for index, file_name in enumerate(self.file_names_list, start=1):
             print(f"sample_{index} {file_name}")

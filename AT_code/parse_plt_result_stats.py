@@ -3,10 +3,12 @@ import pandas as pd
 import os
 import time
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Function to find log file paths
 def find_log_file_paths(main_dir, experiment_file):
-    final_result_dir = os.path.join(main_dir, experiment_file, 'files/output_files/')
+    final_result_dir = os.path.join(main_dir, experiment_file, 'files/output_files/') 
+    #final_result_dir = os.path.join(main_dir, experiment_file, 'files/problem/') #(AT)
     log_file_paths = []
     for file in os.listdir(final_result_dir):
         if file.startswith('out_main_') and not file.endswith('.csv'):
@@ -14,6 +16,41 @@ def find_log_file_paths(main_dir, experiment_file):
     return log_file_paths
 
 
+
+# def parse_log_file(log_file_path, multi_occurrence_vars, single_occurrence_vars):
+#     with open(log_file_path, 'r') as file:
+#         lines = file.readlines()
+
+#     # Initialize dictionaries to store regular expressions and corresponding data lists
+#     data = {var: [] for var in multi_occurrence_vars}
+#     single_occurrence_data = {var: None for var in single_occurrence_vars}
+
+#     # Update the regex to handle numbers or the word 'inf'
+#     # regex_patterns_multi = {var: re.compile(f'{var} (-?\\d+\\.\\d+|inf|-inf)') for var in multi_occurrence_vars}
+#     # regex_patterns_single = {var: re.compile(f'{var} (-?\\d+\\.\\d+|inf|-inf)') for var in single_occurrence_vars}
+#     regex_patterns_multi = {var: re.compile(f'{var} (-?\\d*\\.?\\d+|\\d+|inf|-inf)') for var in multi_occurrence_vars}
+#     regex_patterns_single = {var: re.compile(f'{var} (-?\\d*\\.?\\d+|\\d+|inf|-inf)') for var in single_occurrence_vars}
+
+#     # Parse the file line by line
+#     for line in lines:
+#         for var, regex in regex_patterns_multi.items():
+#             match = regex.search(line)
+#             if match:
+#                 value = match.group(1)
+#                 # Convert the value to float or inf as necessary
+#                 data[var].append(float(value) if value not in ['inf', '-inf'] else float(value))
+
+#         for var, regex in regex_patterns_single.items():
+#             match = regex.search(line)
+#             if match and single_occurrence_data[var] is None:
+#                 value = match.group(1)
+#                 # Convert the value to float or inf as necessary
+#                 single_occurrence_data[var] = float(value) if value not in ['inf', '-inf'] else float(value)
+
+#     # Create a DataFrame from the parsed data
+#     df = pd.DataFrame(data)
+
+#     return df, single_occurrence_data
 
 def parse_log_file(log_file_path, multi_occurrence_vars, single_occurrence_vars):
     with open(log_file_path, 'r') as file:
@@ -23,25 +60,36 @@ def parse_log_file(log_file_path, multi_occurrence_vars, single_occurrence_vars)
     data = {var: [] for var in multi_occurrence_vars}
     single_occurrence_data = {var: None for var in single_occurrence_vars}
 
-    regex_patterns_multi = {var: re.compile(f'{var} ([\\d.-]+)') for var in multi_occurrence_vars}
-    regex_patterns_single = {var: re.compile(f'{var} ([\\d.-]+)') for var in single_occurrence_vars}
+    # Update the regex to handle numbers or the word 'inf'
+    regex_patterns_multi = {var: re.compile(f'{var} (-?\\d*\\.?\\d+|\\d+|inf|-inf)') for var in multi_occurrence_vars}
+    regex_patterns_single = {var: re.compile(f'{var} (-?\\d*\\.?\\d+|\\d+|inf|-inf|/[^\\s]+)') for var in single_occurrence_vars}
 
     # Parse the file line by line
     for line in lines:
         for var, regex in regex_patterns_multi.items():
             match = regex.search(line)
             if match:
-                data[var].append(float(match.group(1)))
+                value = match.group(1)
+                # Convert the value to float or inf as necessary
+                data[var].append(float(value) if value not in ['inf', '-inf'] else float(value))
 
         for var, regex in regex_patterns_single.items():
             match = regex.search(line)
             if match and single_occurrence_data[var] is None:
-                single_occurrence_data[var] = float(match.group(1))
+                value = match.group(1)
+                # Check if the value is a file path
+                if '/' in value:
+                    # Extract the file name from the path
+                    single_occurrence_data[var] = value.split('/')[-1]
+                else:
+                    # Convert the value to float if it's not a file path
+                    single_occurrence_data[var] = float(value) if value not in ['inf', '-inf'] else float(value)
 
     # Create a DataFrame from the parsed data
     df = pd.DataFrame(data)
 
     return df, single_occurrence_data
+
 
 # Function to save DataFrame to CSV
 def save_dataframe_to_csv(df, log_file_path):
@@ -67,11 +115,24 @@ def plot_results(df, single_occurrence_data, experiment_file, main_dir, name, co
     for i, column in enumerate(columns_to_plot):
         row = i // n_columns
         col = i % n_columns
-        axs[row, col].plot(df['EM_loop'], df[column], marker='o')
+        
+        # Mask for finite and infinite values
+        finite_mask = np.isfinite(df[column])
+        inf_mask = np.isinf(df[column])
+
+        # Plot finite values
+        axs[row, col].plot(df['EM_loop'][finite_mask], df[column][finite_mask], marker='o', label=f'{column} (finite)')
+        
+        # Plot inf values with a distinct marker and color
+        if inf_mask.any():
+            axs[row, col].plot(df['EM_loop'][inf_mask], df[column][inf_mask], 'rx', label=f'{column} (inf)')
+        
+        # Set labels and title
         axs[row, col].set_xlabel('EM_loop')
         axs[row, col].set_ylabel(column)
         axs[row, col].set_title(f'{column} vs EM_loop')
         axs[row, col].grid(True)
+        axs[row, col].legend()
 
     # Remove any empty subplots
     for j in range(len(columns_to_plot), n_rows * n_columns):
@@ -87,9 +148,6 @@ def plot_results(df, single_occurrence_data, experiment_file, main_dir, name, co
     # Save the figure
     timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
     plt.savefig(os.path.join(figure_dir, name + timestamp + '.png'))
-
-    # Show the plot
-    plt.show()
 
 
 # Read the file and process lines
@@ -109,19 +167,7 @@ def process_file(input_file):
         for line in file:
             # Check if the line contains an iteration
             if 'GD_Iteration' in line:
-                # # Extract the iteration number
-                # parts = line.split(' ')
-                # #iteration_number = int(parts[1])
-
-                # iteration_number_str = re.findall(r'\d+', parts[1])[0]  # Extract digits
-                # iteration_number = int(iteration_number_str)  # Convert to integer
-
-                # # Update the iteration number based on the base counter
-                # parts[1] = str(base_counter + iteration_number)
-                # # line = ' '.join(parts)
-                # Append the updated iteration number to the iterations list for plotting
-                #iterations.append(base_counter + iteration_number)
-
+                
                 # Extract the iteration number
                 iteration_number_str = re.findall(r'\d+', line)[0]  # Extract digits
                 iteration_number = int(iteration_number_str)  # Convert to integer
@@ -166,12 +212,12 @@ def plot_iterations_vs_loss(iterations, losses, experiment_file, main_dir, name)
     # Save the figure
     timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
     plt.savefig(os.path.join(figure_dir, name+'_Gradient' + timestamp + '.png'))
-    plt.show()
+    #plt.show()
 
 
 # Main function to run the entire process
 def main():
-    experiment_file = 'exprmntDummy_2024_00_00__00_00_00'
+    experiment_file = 'exprmnt_2024_08_10__02_05_36'
     main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/'
 
     # Find all log file paths
@@ -187,15 +233,15 @@ def main():
         multi_occurrence_vars = ['ELBO_sample_1', 'ELBO_sample_2', 'Convergence_sample_1', 'Convergence_sample_2',
                      'EM_convergence', 'Spearman_corr_theta1_theta2',
                      'Spearman_corr_theta1_alpha', 'Spearman_corr_theta2_alpha', 'alpha_summation ', 'EM_loop']
-        single_occurrence_vars = ['GD_lr', 'alpha_initial']
+        
+        single_occurrence_vars = ['GD_lr', 'alpha_initial', 'sample_1', 'sample_2']
+    
         df, single_occurrence_data = parse_log_file(log_file_path, multi_occurrence_vars, single_occurrence_vars)
-
+        
         # Save the parsed data to a CSV file
-        csv_file_path = save_dataframe_to_csv(df, log_file_path)
+        #csv_file_path = save_dataframe_to_csv(df, log_file_path) #(AT)
 
         # Plot the results
-        #plot_results(df, experiment_file, main_dir, log_file_path.split('/')[-1])
-        #plot_results(df, experiment_file, main_dir, log_file_path.split('/')[-1], variables)
         name = log_file_path.split('/')[-1]
         plot_results(df, single_occurrence_data, experiment_file, main_dir, name, multi_occurrence_vars)
 

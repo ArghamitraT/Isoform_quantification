@@ -12,9 +12,9 @@ import pandas as pd
 from tqdm import tqdm
 import hashlib
 import pickle
-from DirichletOptimizer import DirichletModel
+from Dirichlet_old import DirichletModel
 import numpy as np
-import generate_corr as gen_img
+#import generate_corr as gen_img
 
 # Local imports
 from NanoCount.Read import Read

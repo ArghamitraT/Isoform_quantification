@@ -8,7 +8,7 @@ import os
 import re
 from collections import defaultdict
 from scipy.interpolate import UnivariateSpline
-import seaborn as sns
+#import seaborn as sns
 from scipy.integrate import trapz
 
 
@@ -107,7 +107,7 @@ def spearman_corr_SIRV(file_path1, sample):
         # If a matching isoform is found in ground_truth
         if len(molarity_value) > 0:
             # Append the tpm and molarity to the respective lists
-            matched_tpm.append(tpm_value)
+            matched_tpm.append(np.log(tpm_value+1))
             matched_molarity.append(fraction_to_float(molarity_value[0]))  # Take the first match in case of multiple
 
     # Calculate Spearman's correlation using the matched lists
@@ -177,9 +177,11 @@ def spearman_corr_generic(file_path1, file_path2, directory):
 # SIRV_output = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmnt_2024_07_15__14_27_36/files/output_files/output_SIRV_VIGD_15947722_sample2_aln_E2_2024_7_15_14_30_45.tsv'
 # spearman_corr_SIRV(SIRV_output, sample='2')
 
-# output_file = os.path.join(os.getcwd(), '../../files/results/single_run/')
-# SIRV_output = output_file+'output_SIRV_VIGD_sample2_aln_E2_2024_7_15_15_17_56.tsv'
-# spearman_corr_SIRV(SIRV_output, sample='2')
+output_file = os.path.join(os.getcwd(), '../../files/results/single_run/files/output_files/')
+#output_file = os.path.join(os.getcwd(), '../../files/results/exprmnt_2024_07_28__17_38_26/files/output_files/')
+SIRV_output = output_file+'output_SIRV_VIGD_00000_sample2_aln_E2_2024_8_5_22_39_32.tsv'
+spearman_corr_SIRV(SIRV_output, sample='2')
+print()
 
 def pair_files(directory, criteria='replica'):
     # Dictionary to store the files based on pairing criteria
