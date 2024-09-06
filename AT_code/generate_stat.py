@@ -1,3 +1,7 @@
+"""
+This files is used to look at spearmann correaltaion and other resulting metrics between replica
+"""
+
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr
@@ -11,6 +15,7 @@ from scipy.interpolate import UnivariateSpline
 import seaborn as sns
 from scipy.integrate import trapz
 import sys
+import csv
 
 
 def create_image_name(name, format=".png"):
@@ -175,123 +180,68 @@ def spearman_corr_generic(file_path1, file_path2):
     return correlation
 
 
-# def pair_files(directory, type):
-#     # Dictionary to store the files based on downsampling percentage and length type
-#     long_file_pairs = defaultdict(list)
-#     short_file_pairs = defaultdict(list)
-
-#     # Regular expression to match the files
-#     #file_pattern = re.compile(r'(.*)_ds_(\d+)_aln_(\d{2})_(long|short)(.*)|(.*)_aln_(\d{2})_(long|short)(.*)')
-#     file_pattern = re.compile(r'.*?_sample\d+_ds_\d+_num\d+_aln_\d{2}_(long|short)_\d{4}_\d{1,2}_\d{1,2}_\d{1,2}_\d{1,2}_\d{1,2}\.tsv')
-
-#     # This will give you LR and SR file names with same replica, eg: lr_01_replica1+lr_01_replica2,
-#     if type == 'replica':
-#         # List all files in the directory
-#         for file in os.listdir(directory):
-#             match = file_pattern.match(file)
-#             if match:
-#                 if match.groups()[1]:  # Matches pattern with downsampling
-#                     prefix, ds_percentage, aln_replica, length, suffix = match.groups()[:5]
-#                     key = (ds_percentage, length)
-#                     long_file_pairs[key].append((file, aln_replica))
-#                 else:  # Matches pattern without downsampling
-#                     prefix, aln_replica, length, suffix = match.groups()[5:]
-#                     token = re.search(r'VIGD_(\d+)', prefix).group(1)
-#                     key = (token)
-#                     short_file_pairs[key].append((file, aln_replica))
-
-#         # Create long read pairs
-#         paired_files = []
-#         valid_tokens = set()
-#         for key, files in long_file_pairs.items():
-#             paired_files.append((files[0][0], files[1][0]))
-#             # (AT)
-#             sr_file1 = short_file_pairs[files[0][0].split('_')[3]][0][0]
-#             sr_file2 = short_file_pairs[files[1][0].split('_')[3]][0][0]
-#             paired_files.append((sr_file1, sr_file2))
-
-#     # This will give you LR and SR file names those were trained together, eg: lr_01_replica1+sr_01_replica2,
-#     elif type =='within_trainee':
-#         # List all files in the directory
-#         for file in os.listdir(directory):
-#             match = file_pattern.match(file)
-#             if match:
-#                 if match.groups()[1]:  # Matches pattern with downsampling
-#                     prefix, ds_percentage, aln_replica, length, suffix = match.groups()[:5]
-#                     token = re.search(r'VIGD_(\d+)', prefix).group(1)
-#                     key = (token)
-#                     long_file_pairs[key].append((file, aln_replica))
-#                 else:  # Matches pattern without downsampling
-#                     prefix, aln_replica, length, suffix = match.groups()[5:]
-#                     token = re.search(r'VIGD_(\d+)', prefix).group(1)
-#                     key = (token)
-#                     short_file_pairs[key].append((file, aln_replica))
-
-#         # Create long read pairs
-#         paired_files = []
-#         valid_tokens = set()
-#         for key, files in long_file_pairs.items():
-#             paired_files.append((files[0][0], short_file_pairs[files[0][0].split('_')[3]][0][0]))
-
-#     # (AT)
-#     # x = list(short_file_pairs.items())
-#     # paired_files.append((x[0][1][0][0], x[1][1][0][0]))
-
-
-#     return paired_files
 
 def pair_files(directory, pair_type):
-    # Dictionary to store the files based on downsampling percentage and length type
+    # Dictionary to store the files based on downsampling percentage, length type, and additional metrics
     long_file_pairs = defaultdict(list)
     short_file_pairs = defaultdict(list)
+    file_info = defaultdict(list)
 
-    # Regular expression to match the files
-    file_pattern = re.compile(r'ds_(\d+)_num(\d+)_aln_(\d{2})_(long|short)')
-
-    # This will give you LR and SR file names with same replica, eg: lr_01_replica1+lr_01_replica2,
+    # Updated regular expression to match the files with additional metrics
+    file_pattern = re.compile(
+        r'output_PacIllu_VIGD_token_(\d+)_sample(\d+)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_GDlr_(0\.\d+)_AlphaInitial_(\d+(?:\.\d+)?)_EMround_(\d+)_'
+    )
+    # List all files in the directory
+    for file in os.listdir(directory):
+        match = file_pattern.search(file)
+        if match:
+            # Parse the matched groups
+            (token, sample, file_num1, ds_percentage1, num1, aln_replica1, length1,
+                file_num2, ds_percentage2, num2, aln_replica2, length2,
+                GDlr, AlphaInitial, EMround
+            ) = match.groups()
+            # Determine which file to parse based on the sample number
+            if sample == '1':
+                ds_percentage, file_num, aln_replica, length = ds_percentage1, num1, aln_replica1[1], length1
+            elif sample == '2':
+                ds_percentage, file_num, aln_replica, length = ds_percentage2, num2, aln_replica2[1], length2
+            
+            if length == 'long':
+                key = (ds_percentage, file_num, GDlr, AlphaInitial, EMround)
+                long_file_pairs[key].append((file, token))
+            else:
+                key = (token)
+                short_file_pairs[key].append((file, token))
+    
+    # for key, files in long_file_pairs.items():
+    #     paired_files.append(files[0][0])
+    
+    # Create long read pairs
+    paired_files = []
     if pair_type == 'replica':
-        # List all files in the directory
-        for file in os.listdir(directory):
-            match = file_pattern.search(file)
-            if match:
-                ds_percentage, file_num, aln_replica, length = match.groups()
-                key = (ds_percentage, aln_replica)
-                if length == 'long':
-                    long_file_pairs[key].append((file, file_num))
-                else:
-                    short_file_pairs[key].append((file, file_num))
-
-        # Create long read pairs
-        paired_files = []
         for key, files in long_file_pairs.items():
-            if len(files) == 2:
-                paired_files.append((files[0][0], files[1][0]))
-                sr_file1 = short_file_pairs[key][0][0]
-                sr_file2 = short_file_pairs[key][1][0]
-                paired_files.append((sr_file1, sr_file2))
+            if len(files) > 1:  # Ensure there are multiple replicas
+                # Pair long read files for each replica
+                for i in range(len(files)):
+                    for j in range(i + 1, len(files)):
+                        paired_files.append((files[i][0], files[j][0]))
+                        
+                        # Corresponding short read files for each replica
+                        sr_file1 = short_file_pairs[files[i][1]][0][0]
+                        sr_file2 = short_file_pairs[files[j][1]][0][0]
+                        paired_files.append((sr_file1, sr_file2))
 
     # This will give you LR and SR file names those were trained together, eg: lr_01_replica1+sr_01_replica2,
     elif pair_type == 'within_trainee':
-        # List all files in the directory
-        for file in os.listdir(directory):
-            match = file_pattern.search(file)
-            if match:
-                ds_percentage, file_num, aln_replica, length = match.groups()
-                key = (ds_percentage, aln_replica)
-                if length == 'long':
-                    long_file_pairs[key].append((file, file_num))
-                else:
-                    short_file_pairs[key].append((file, file_num))
-
-        # Create long read pairs
-        paired_files = []
         for key, files in long_file_pairs.items():
-            paired_files.append((files[0][0], short_file_pairs[key][0][0]))
+            for i in range(len(files)):
+                lr_file = files[i][0]
+                sr_file = short_file_pairs[files[i][1]][0][0]
+                paired_files.append((lr_file, sr_file))
 
     return paired_files
 
-
-
+    
 # Function to calculate CV
 def calculate_cv(data):
     # colm_name = 'long' if type == 'long' else 'short'
@@ -321,13 +271,6 @@ def calculate_acvc(cv_values, abundance):
 
 def calculate_im_acvc(rep1, rep2, directory):
 
-    # if type == 'long':
-    #     rep1_data = csv_tpm_processing(directory+rep1, directory+rep2, suffixes=('_longRep1', '_longRep2'))
-    # else:
-    #     rep1_data = csv_tpm_processing(directory+rep1, directory+rep2, suffixes=('_shortRep1', '_shortRep2'))
-
-    # rep1_data = calculate_cv(rep1_data, type=type, log_file=log_file)
-    
     rep1_data = csv_tpm_processing(directory+rep1, directory+rep2, suffixes=('_Rep1', '_Rep2'))
 
     rep1_data, ACVC, IM = calculate_cv(rep1_data)
@@ -395,38 +338,74 @@ def merge_csv_files(file1, file2, output_dir):
 
     print(f'Merged file saved as {output_file}')
 
+def csv_row_parsing(pair):
+    file_pattern = re.compile(
+            r'output_PacIllu_VIGD_token_(\d+)_sample(\d+)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_GDlr_(0\.\d+)_AlphaInitial_(\d+(?:\.\d+)?)_EMround_(\d+)_'
+        )
+    i = 0
+    for file in pair:
+        match = file_pattern.search(file)
+        (token, sample, file_num1, ds_percentage1, num1, aln_replica1, length1,
+                file_num2, ds_percentage2, num2, aln_replica2, length2,
+                GDlr, AlphaInitial, EMround
+            ) = match.groups()
+        if i == 0:
+            if sample == '1':
+                file_num1, replica1, dayF1, ds_prctF1 = num1, aln_replica1[1], aln_replica1[0], ds_percentage1
+            elif sample == '2':
+                file_num1, replica1, dayF1, ds_prctF1 = num2, aln_replica2[1], aln_replica2[0], ds_percentage2
+            tokenF1, sampleF1 = token, sample
+        else:
+            if sample == '1':
+                file_num2, replica2, dayF2, length, ds_prctF2 = num1, aln_replica1[1], aln_replica1[0], length1, ds_percentage1
+            elif sample == '2':
+                file_num2, replica2, dayF2, length, ds_prctF2 = num2, aln_replica2[1], aln_replica2[0], length2, ds_percentage2
+            tokenF2, sampleF2 = token, sample
+        i+=1
+    return GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2
+               
+
+
 
 def main():
-    experiment_file = 'exprmnt_2024_08_10__02_05_36'
+    experiment_file = 'exprmnt_2024_08_28__01_31_50'
     main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/'
     directory = os.path.join(main_dir, experiment_file, 'files/output_files/')
     # paired_files, 2 types
     # type == 'replica': This will give you LR and SR file names with same replica, eg: lr_01_replica1+lr_01_replica2,
     # type == 'within_trainee': This will give you LR and SR file names those were trained together, eg: lr_01_replica1+sr_01_replica2,
     paired_files = pair_files(directory, pair_type='replica')
+    # paired_files = pair_files(directory, pair_type='within_trainee')
     timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
-    log_file = directory + f'corr_results{timestamp}.txt'
-    sys.stdout = open(log_file, 'w')
+    spearman_corr, ACVC, IM = 0, 0, 0
 
-    for pair in paired_files:
-        print(pair)
+     # Prepare the CSV file for writing
+    csv_file = directory + f'correlations_results{timestamp}.csv'
 
-        # Determine the type based on file names
-        # if 'long' in pair[0] and 'long' in pair[1]:
-        #     data_type = 'long'
-        # elif 'short' in pair[0] and 'short' in pair[1]:
-        #     data_type = 'short'
-        # else:
-        #     raise ValueError("File pair does not match expected 'long' or 'short' types")
+    # Open the CSV file for writing
+    with open(csv_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        
+        # Write the header row
+        key_file_info = (['Spearman_Corr', 'ACVC', 'IM', 'GDlr', 'AlphaInitial', 'EMround', 'length'
+        'file_numF1', 'file_numF2', 'replicaF1', 'replicaF1', 'dayF1', 'dayF2', 'tokenF1', 'tokenF2', 'sampleF1', 'sampleF2','ds_prctF1','ds_prctF2'])
+            
+        writer.writerow(key_file_info)
+        # Iterate through the paired files
+        for idx, pair in enumerate(paired_files):
+            GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2=csv_row_parsing(pair)
+            # Perform calculations
+            spearman_corr = spearman_corr_generic(directory + pair[0], directory + pair[1])
+            ACVC, IM = calculate_im_acvc(pair[0], pair[1], directory)
 
-        """ ## CALL 'spearman_corr_generic' FUNC FIRST ## """
-        data_type = 'long'
-        spearman_corr_generic(directory + pair[0], directory + pair[1], log_file, type=data_type)
-        calculate_im_acvc(pair[0], pair[1], directory, log_file, type=data_type)
+            row_writing = [spearman_corr, ACVC, IM, GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2]
+            
+            # Write the row to the CSV file
+            writer.writerow([row_writing])
 
-    sys.stdout.close()
 
 
 # Example usage
 if __name__ == "__main__":
     main()
+

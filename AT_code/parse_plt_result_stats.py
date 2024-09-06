@@ -1,3 +1,7 @@
+"""
+This files is used parse the result statistics from the log file
+"""
+
 import re
 import pandas as pd
 import os

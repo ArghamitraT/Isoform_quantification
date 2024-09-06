@@ -41,7 +41,7 @@ def create_load_file_path():
 ##main_folder = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/data/'
 
 main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/'
-output_file_default = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_PacIllu_VIGD_00000')
+output_file_default = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/outputTRIAL_PacIllu_VIGD_token_00000')
 
 # Set up argparse to handle command-line arguments (AT) TAKE A CLOSE LOOK AT THE DEFAULT VALUES
 parser = argparse.ArgumentParser(description="Process BAM files and output results.")
@@ -51,8 +51,8 @@ parser.add_argument("--sample1", type=str, default='ds_5_aln_02_long.bam', help=
 parser.add_argument("--sample2", type=str, default='aln_01_short.bam', help="Sample2 (SR) file name.")
 parser.add_argument("--GD_lr", type=float, default=0.01, help="Learning rate for dirichlet gradient descent.")
 parser.add_argument("--alpha_initial", type=float, default=10000, help="The fixed sum value of alpha")
-parser.add_argument("--max_em_rounds", type=int, default=2, help="The maximum EM iterations")
-parser.add_argument("--load", type=int, default=0, help="0 or 1 If load is 1, we will load the old weights and resume training") ## (AT)
+parser.add_argument("--max_em_rounds", type=int, default=26, help="The maximum EM iterations")
+parser.add_argument("--load", type=int, default=1, help="0 or 1 If load is 1, we will load the old weights and resume training") ## (AT)
 parser.add_argument("--load_filename", type=str, default='generic', help="if load==1 (the model needs to resumed training), need a path to load the weights")
 
 
@@ -74,9 +74,9 @@ load_filename = args.load_filename
 # sample1 = main_folder + 'aln_E0.bam'
 # sample2 = main_folder + 'aln_E2.bam'
 # output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_SIRV_VIGD_token_00000')
-# sample1 = main_folder + 'ds_2_num1_aln_02_long.bam'
-# sample2 = main_folder + 'ds_100_num1_aln_02_short.bam'
-# output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_PacIllu_VIGD_token_00000')
+sample1 = main_folder + 'ds_2_num1_aln_02_long.bam'
+sample2 = main_folder + 'ds_100_num1_aln_02_short.bam'
+output_file = os.path.join(os.getcwd(), '../../files/results/exprmnt_2024_08_28__01_31_50/files/outputTRIAL_PacIllu_VIGD_token_000000')
 
 
 # Print all the parameters

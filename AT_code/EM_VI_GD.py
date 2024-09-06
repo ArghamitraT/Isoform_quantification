@@ -148,7 +148,7 @@ class Expec_Max:
         start = time.time()
 
         if load:
-            self.load_state(new_max_em_rounds)
+            self.load_state(max_em_rounds, count_file)
         
         else:
             self.initialize_model()
@@ -312,7 +312,7 @@ class Expec_Max:
             pickle.dump(self, f)
 
     # @staticmethod
-    def load_state(self,  new_max_em_rounds):
+    def load_state(self,  new_max_em_rounds, count_file):
         # with open(self.load_filename, 'rb') as f:
         #     return pickle.load(f)
         print(f"loading_weights_from {self.load_filename}")
@@ -321,6 +321,7 @@ class Expec_Max:
             # Update the current instance's __dict__ with the loaded object's __dict__
             self.__dict__.update(loaded_obj.__dict__)
         self.max_em_rounds = new_max_em_rounds
+        self.count_file = count_file
         
 
     def create_image_name(self, name, format=".png"):
@@ -769,7 +770,7 @@ class Expec_Max:
 
     def initialize_model(self):
         start = time.time()
-        ##  (AT) UNCOMMENT
+        
         ## Loop over all file names provided and parses the reads with
         for index, file_name in enumerate(self.file_names_list, start=1):
             print(f"sample_{index} {file_name}")

@@ -70,10 +70,10 @@ load_filename = args.load_filename
 
 
 ## (AT) SIRV
-# main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/SIRV/'
-# sample1 = main_folder + 'aln_E0.bam'
-# sample2 = main_folder + 'aln_E2.bam'
-# output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_SIRV_VIGD_token_00000')
+main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/SIRV/'
+sample1 = main_folder + 'aln_E0.bam'
+sample2 = main_folder + 'aln_E2.bam'
+output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_SIRV_VIGD_token_00000')
 # sample1 = main_folder + 'ds_2_num1_aln_02_long.bam'
 # sample2 = main_folder + 'ds_100_num1_aln_02_short.bam'
 # output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_PacIllu_VIGD_token_00000')

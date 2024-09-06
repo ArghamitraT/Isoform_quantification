@@ -1,3 +1,5 @@
+
+
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import spearmanr
@@ -374,7 +376,7 @@ def merge_csv_files(file1, file2, output_dir):
 
 
 def main():
-    experiment_file = 'exprmnt_2024_07_15__15_38_55'
+    experiment_file = 'exprmnt_2024_09_02__17_26_30' #the name of the folder where you have your .csv files for isoform quantifications
     main_dir = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/files/results/'
     directory = os.path.join(main_dir, experiment_file, 'files/output_files/')
     criteria = 'length'  # Change to 'day', 'replica', or 'length' as needed

@@ -1,3 +1,6 @@
+"""
+This files is used to submit files in the slurm
+"""
 import os
 import time
 import random
@@ -75,7 +78,7 @@ def create_slurm_file(prg_file_path, job_name, slurm_file_path):
     "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
     "##NECESSARY JOB SPECIFICATIONS\n" + \
     f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
-    "#SBATCH --time=80:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
+    "#SBATCH --time=8:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
     "#SBATCH --mem=256G              \n" + \
     "#SBATCH --cpus-per-task=8                   \n" + \
     "#SBATCH --mail-type=END,FAIL    \n" + \
@@ -119,23 +122,24 @@ samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.ba
 #                       ['ds_10_num1_aln_03_long.bam', 'ds_100_num1_aln_03_short.bam']]
 #samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam']]
 """ **CHANGE (AT)** THE DIRECTORY NAME FROM WHERE WEIGHTS NEEDS TO BE COPIED INTO ./WEIGHTS FOLDER(THE UNIVERSAL WEIGHT FOLDER)"""
-#other_script_names = ['EM_VI_GD.py', 'DirichletOptimizer.py']
-other_script_names = ['EM_VI_GD_together.py', 'DirichletOptimizer.py']
+other_script_names = ['EM_VI_GD.py', 'DirichletOptimizer.py']
+#other_script_names = ['EM_VI_GD_together.py', 'DirichletOptimizer.py']
 output_file_name = "output_PacIllu_VIGD_token_"
 from_where_to_copy = "exprmnt_2024_08_10__02_05_36"
 last_EM_round = 25
-copy_needed = 0 #(AT)
-name_arr = ['main_EM_VI_GD_together.py']
+copy_needed = 1 #(AT)
+#name_arr = ['main_EM_VI_GD_together.py']
+name_arr = ['main_EM_VI_GD.py']
 alpha_val_arr = [10000]
 GDlr_val_arr = [0.01]
-EM_round_arr = [25] 
+EM_round_arr = [27] 
 
 def create_readme():
     name = os.path.join(data_dir, "readme")
     readme = open(name, "a")
 
     """ **CHANGE (AT)** WRITE THE COMMENT"""
-    comment = f"Merging Pacbio and illumina data in one sample, training for 25 epochs. The purpose is to see if the biases are impacting the result and compare with MPAQT paper."
+    comment = f"trial."
     readme.write(comment)
     readme.close()
 
