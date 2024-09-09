@@ -20,42 +20,6 @@ def find_log_file_paths(main_dir, experiment_file):
     return log_file_paths
 
 
-
-# def parse_log_file(log_file_path, multi_occurrence_vars, single_occurrence_vars):
-#     with open(log_file_path, 'r') as file:
-#         lines = file.readlines()
-
-#     # Initialize dictionaries to store regular expressions and corresponding data lists
-#     data = {var: [] for var in multi_occurrence_vars}
-#     single_occurrence_data = {var: None for var in single_occurrence_vars}
-
-#     # Update the regex to handle numbers or the word 'inf'
-#     # regex_patterns_multi = {var: re.compile(f'{var} (-?\\d+\\.\\d+|inf|-inf)') for var in multi_occurrence_vars}
-#     # regex_patterns_single = {var: re.compile(f'{var} (-?\\d+\\.\\d+|inf|-inf)') for var in single_occurrence_vars}
-#     regex_patterns_multi = {var: re.compile(f'{var} (-?\\d*\\.?\\d+|\\d+|inf|-inf)') for var in multi_occurrence_vars}
-#     regex_patterns_single = {var: re.compile(f'{var} (-?\\d*\\.?\\d+|\\d+|inf|-inf)') for var in single_occurrence_vars}
-
-#     # Parse the file line by line
-#     for line in lines:
-#         for var, regex in regex_patterns_multi.items():
-#             match = regex.search(line)
-#             if match:
-#                 value = match.group(1)
-#                 # Convert the value to float or inf as necessary
-#                 data[var].append(float(value) if value not in ['inf', '-inf'] else float(value))
-
-#         for var, regex in regex_patterns_single.items():
-#             match = regex.search(line)
-#             if match and single_occurrence_data[var] is None:
-#                 value = match.group(1)
-#                 # Convert the value to float or inf as necessary
-#                 single_occurrence_data[var] = float(value) if value not in ['inf', '-inf'] else float(value)
-
-#     # Create a DataFrame from the parsed data
-#     df = pd.DataFrame(data)
-
-#     return df, single_occurrence_data
-
 def parse_log_file(log_file_path, multi_occurrence_vars, single_occurrence_vars):
     with open(log_file_path, 'r') as file:
         lines = file.readlines()

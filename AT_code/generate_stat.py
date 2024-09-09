@@ -213,6 +213,7 @@ def pair_files(directory, pair_type):
                 key = (token)
                 short_file_pairs[key].append((file, token))
     
+    # DO NOT ERASE
     # for key, files in long_file_pairs.items():
     #     paired_files.append(files[0][0])
     
