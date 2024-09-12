@@ -47,30 +47,6 @@ def copy_weights(desired_weight_path, to_be_saved_path ):
         dir = os.path.join(desired_weight_path, file_name)
         os.system(f"cp {dir} {to_be_saved_path}")
 
-# def gen_dir():
-
-#     desired_weight_path = os.path.join(main_data_dir, path_weights_to_copy, 'weights')
-#     to_be_saved_path = os.path.join(os.getcwd(), "weights")
-#     copy_weights(desired_weight_path, to_be_saved_path)
-
-# def copy_previous_weights():
-
-#     desired_weight_path = os.path.join(main_data_dir, from_where_to_copy, 'weights')
-
-#     #first delet any file in the folder
-#     # List all files in the directory
-#     for filename in os.listdir(where_to_save):
-#         file_path = os.path.join(where_to_save, filename)
-        
-#         # Check if it is a file (and not a directory)
-#         if os.path.isfile(file_path):
-#             try:
-#                 os.remove(file_path)
-#                 # print(f"Deleted: {file_path}")
-#             except Exception as e:
-#                 # print(f"Error deleting {file_path}: {e}")
-#     to_be_saved_path = os.path.join(os.getcwd(), "weights")
-#     copy_weights(desired_weight_path, to_be_saved_path)
 
 def create_slurm_file(prg_file_path, job_name, slurm_file_path):
 
@@ -78,7 +54,7 @@ def create_slurm_file(prg_file_path, job_name, slurm_file_path):
     "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
     "##NECESSARY JOB SPECIFICATIONS\n" + \
     f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
-    "#SBATCH --time=8:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
+    "#SBATCH --time=80:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
     "#SBATCH --mem=256G              \n" + \
     "#SBATCH --cpus-per-task=8                   \n" + \
     "#SBATCH --mail-type=END,FAIL    \n" + \
@@ -112,8 +88,10 @@ output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 
 """ **CHANGE (AT)** THE MAIN FOLDER NAME """
 # **** the first element should be LR, the second should be SR ****
-samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'],
-                    ['ds_2_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam']]
+# samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'],
+#                     ['ds_2_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam']]
+samples_file_names = [ ['SHORT_2024_09_11__00_28_11_sample_1', 'LONG_2024_09_11__00_28_11_sample_1'],
+                        ['SHORT_2024_09_11__00_28_11_sample_2', 'LONG_2024_09_11__00_28_11_sample_2']]
 # samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'], 
 #                       ['ds_10_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'],
 #                       ['ds_2_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam'], 
@@ -122,24 +100,26 @@ samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.ba
 #                       ['ds_10_num1_aln_03_long.bam', 'ds_100_num1_aln_03_short.bam']]
 #samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam']]
 """ **CHANGE (AT)** THE DIRECTORY NAME FROM WHERE WEIGHTS NEEDS TO BE COPIED INTO ./WEIGHTS FOLDER(THE UNIVERSAL WEIGHT FOLDER)"""
-other_script_names = ['EM_VI_GD.py', 'DirichletOptimizer.py']
+# other_script_names = ['EM_VI_GD.py', 'DirichletOptimizer.py']
 #other_script_names = ['EM_VI_GD_together.py', 'DirichletOptimizer.py']
-output_file_name = "output_PacIllu_VIGD_token_"
+other_script_names = ['EM_VI_GD_simulation.py', 'DirichletOptimizer.py']
+output_file_name = "output_Simulation_VIGD_token_"
 from_where_to_copy = "exprmnt_2024_08_10__02_05_36"
 last_EM_round = 25
-copy_needed = 1 #(AT)
-#name_arr = ['main_EM_VI_GD_together.py']
-name_arr = ['main_EM_VI_GD.py']
-alpha_val_arr = [10000]
+copy_needed = 0 #(AT)
+# name_arr = ['main_EM_VI_GD_together.py']
+# name_arr = ['main_EM_VI_GD.py']
+name_arr = ['main_EM_VI_GD_simulation.py']
+alpha_val_arr = [10000, 80000]
 GDlr_val_arr = [0.01]
-EM_round_arr = [27] 
+EM_round_arr = [25] 
 
 def create_readme():
     name = os.path.join(data_dir, "readme")
     readme = open(name, "a")
 
     """ **CHANGE (AT)** WRITE THE COMMENT"""
-    comment = f"trial."
+    comment = f"Running simulated data for 25 iterations, single sample"
     readme.write(comment)
     readme.close()
 

@@ -213,32 +213,32 @@ def pair_files(directory, pair_type):
                 key = (token)
                 short_file_pairs[key].append((file, token))
     
-    # DO NOT ERASE
-    # for key, files in long_file_pairs.items():
-    #     paired_files.append(files[0][0])
+    paired_files = []
+    ### DO NOT ERASE
+    for key, files in long_file_pairs.items():
+        paired_files.append((files[0][0], files[1][0]))
     
     # Create long read pairs
-    paired_files = []
-    if pair_type == 'replica':
-        for key, files in long_file_pairs.items():
-            if len(files) > 1:  # Ensure there are multiple replicas
-                # Pair long read files for each replica
-                for i in range(len(files)):
-                    for j in range(i + 1, len(files)):
-                        paired_files.append((files[i][0], files[j][0]))
+    # if pair_type == 'replica':
+    #     for key, files in long_file_pairs.items():
+    #         if len(files) > 1:  # Ensure there are multiple replicas
+    #             # Pair long read files for each replica
+    #             for i in range(len(files)):
+    #                 for j in range(i + 1, len(files)):
+    #                     paired_files.append((files[i][0], files[j][0]))
                         
-                        # Corresponding short read files for each replica
-                        sr_file1 = short_file_pairs[files[i][1]][0][0]
-                        sr_file2 = short_file_pairs[files[j][1]][0][0]
-                        paired_files.append((sr_file1, sr_file2))
+    #                     # Corresponding short read files for each replica
+    #                     sr_file1 = short_file_pairs[files[i][1]][0][0]
+    #                     sr_file2 = short_file_pairs[files[j][1]][0][0]
+    #                     paired_files.append((sr_file1, sr_file2))
 
-    # This will give you LR and SR file names those were trained together, eg: lr_01_replica1+sr_01_replica2,
-    elif pair_type == 'within_trainee':
-        for key, files in long_file_pairs.items():
-            for i in range(len(files)):
-                lr_file = files[i][0]
-                sr_file = short_file_pairs[files[i][1]][0][0]
-                paired_files.append((lr_file, sr_file))
+    # # This will give you LR and SR file names those were trained together, eg: lr_01_replica1+sr_01_replica2,
+    # elif pair_type == 'within_trainee':
+    #     for key, files in long_file_pairs.items():
+    #         for i in range(len(files)):
+    #             lr_file = files[i][0]
+    #             sr_file = short_file_pairs[files[i][1]][0][0]
+    #             paired_files.append((lr_file, sr_file))
 
     return paired_files
 
@@ -369,7 +369,7 @@ def csv_row_parsing(pair):
 
 
 def main():
-    experiment_file = 'exprmnt_2024_08_28__01_31_50'
+    experiment_file = 'exprmnt_2024_09_02__17_26_30'
     main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/'
     directory = os.path.join(main_dir, experiment_file, 'files/output_files/')
     # paired_files, 2 types

@@ -8,20 +8,51 @@ import pickle
 import time
 from scipy.linalg import cholesky
 from scipy.stats import spearmanr, rankdata
+from NanoCount.Read import Read
+from NanoCount.common import *
+
+
+timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
+
+def calculate_theta_and_alpha_prime_0(all_Zri):
+        """
+        Calculates the initial model parameter (isoform percentage) and alpha prime.
+        """
+        # Initialize the abundance dictionary and total
+        abundance_dict = Counter()
+        total = 0
+        isoform_indices = {}
+        isoform_counter = 0
+
+        # Calculate abundance and create isoform indices
+        for read_name, comp in all_Zri.items():
+            for ref_name, score in comp.items():
+                abundance_dict[ref_name] += score
+                total += score
+                if ref_name not in isoform_indices:
+                    isoform_indices[ref_name] = isoform_counter
+                    isoform_counter += 1
+
+        # Normalize the abundance dictionary
+        for ref_name in abundance_dict.keys():
+            abundance_dict[ref_name] = abundance_dict[ref_name] / total
+
+        # return abundance_dict, all_alpha, isoform_indices
+        return abundance_dict
 
 # Function to generate samples from a Dirichlet distribution
-def generate_dirichlet_samples(alpha, num_samples):
-    """
-    Generate samples from a Dirichlet distribution.
+# def generate_dirichlet_samples(alpha, num_samples):
+#     """
+#     Generate samples from a Dirichlet distribution.
     
-    Args:
-        alpha (list or array): The alpha parameters for the Dirichlet distribution.
-        num_samples (int): Number of samples to generate.
+#     Args:
+#         alpha (list or array): The alpha parameters for the Dirichlet distribution.
+#         num_samples (int): Number of samples to generate.
     
-    Returns:
-        list: List of generated samples, where each sample is a list of 150k elements.
-    """
-    return [np.random.dirichlet(alpha) for _ in range(num_samples)]
+#     Returns:
+#         list: List of generated samples, where each sample is a list of 150k elements.
+#     """
+#     return [np.random.dirichlet(alpha) for _ in range(num_samples)]
 
 def generate_correlated_sample(sample1, desired_corr):
     """
@@ -46,8 +77,12 @@ def generate_correlated_sample(sample1, desired_corr):
     
     # Step 4: Create a new sample2 by assigning values based on the new ranks
     sample2_adjusted = np.interp(rank2_adjusted, np.sort(rank2), np.sort(sample2))
+
+    # Step 5: Normalize sample2 so it sums to 1 (to meet Dirichlet properties)
+    sample2_normalized = np.abs(sample2_adjusted) / np.sum(np.abs(sample2_adjusted))
     
-    return sample2_adjusted
+    return sample2_normalized
+
 
 def generate_correlated_dirichlet_samples(alpha, desired_corr, num_samples):
     """
@@ -66,6 +101,30 @@ def generate_correlated_dirichlet_samples(alpha, desired_corr, num_samples):
     
     # Step 2: Generate a second sample that has the desired Spearman correlation with the first sample
     sample2 = generate_correlated_sample(sample1, desired_corr)
+    
+    # Generate remaining samples normally from Dirichlet distribution
+    remaining_samples = [np.random.dirichlet(alpha) for _ in range(num_samples - 2)]
+    
+    # Return all samples with the first two having the desired correlation
+    return [sample1, sample2] + remaining_samples
+
+def generate_dirichlet_samples(alpha, desired_corr, num_samples):
+    """
+    Generate a list of Dirichlet samples with the first two samples having a fixed Spearman correlation.
+    
+    Args:
+        alpha (list or array): The alpha parameters for the Dirichlet distribution.
+        desired_corr (float): Desired Spearman correlation between the first two samples.
+        num_samples (int): Number of samples to generate.
+    
+    Returns:
+        list: List of generated samples, where the first two samples have the desired Spearman correlation.
+    """
+    # Step 1: Generate the first sample from Dirichlet
+    sample1 = np.random.dirichlet(alpha)
+    
+    # Step 2: Generate a second sample that has the desired Spearman correlation with the first sample
+    sample2 = sample1
     
     # Generate remaining samples normally from Dirichlet distribution
     remaining_samples = [np.random.dirichlet(alpha) for _ in range(num_samples - 2)]
@@ -193,273 +252,61 @@ def generate_read_counts_multiple_samples(sample_dicts, total_reads_per_sample, 
     Returns:
         dict: Dictionary where each key is a sample, and the value is a dictionary of reads and their assigned isoforms.
     """
-    # all_read_dicts = {}
 
-    # # Loop over each sample in sample_dicts
-    # for sample_name, isoform_proportions in sample_dicts.items():
-    #     print(f"Generating reads for {sample_name}...")
-        
-    #     # Generate read counts for this sample
-    #     read_dict = generate_read_counts(isoform_proportions, total_reads_per_sample, min_ambiguity, max_ambiguity, isoform_lengths, short_min_read_length, short_max_read_length)
-        
-    #     # Store the read assignments for this sample
-    #     all_read_dicts[sample_name] = read_dict
-
-    # return all_read_dicts
-    
     # Loop over each sample in sample_dicts
+    i = 0
     for sample_name, isoform_proportions in sample_dicts.items():
         start = time.time()
         print(f"Generating reads for {sample_name}...")
         # Generate read counts for this sample
         # read_dict, read_probabilities = generate_read_counts(isoform_proportions, total_reads_per_sample, 
         #                         min_ambiguity, max_ambiguity, isoform_lengths, min_read_length, avg_read_length, max_read_length)
-        read_dict, read_probabilities = generate_read_counts_optimized(isoform_proportions, total_reads_per_sample, 
+        read_dict, read_probabilities = generate_read_counts(isoform_proportions, total_reads_per_sample, 
                                 min_ambiguity, max_ambiguity, isoform_lengths, min_read_length, avg_read_length, max_read_length)
     
-    
+        ## comment
+        if i ==0:
+            theta_S1 = calculate_theta_and_alpha_prime_0(read_dict)
+            print(f"theta_S1_num {len(theta_S1)}")
+        if i == 1:
+            theta_S2 = calculate_theta_and_alpha_prime_0(read_dict)
+            print(f"theta_S2_num {len(theta_S2)}")
+
         # Define the filename for saving
-        file_path = os.path.join(simulation_dir, f"{read_name}_{sample_name}_read_dict.pkl")
+        file_path = os.path.join(simulation_dir, f"{read_name}{timestamp}_{sample_name}_read_dict.pkl")
         # Save the read_dict as a pickle file
         with open(file_path, 'wb') as f:
             pickle.dump(read_dict, f)
 
         # Define the filename for saving
-        file_path = os.path.join(simulation_dir, f"{read_name}_{sample_name}_read_iso_prob.pkl")
+        file_path = os.path.join(simulation_dir, f"{read_name}{timestamp}_{sample_name}_read_iso_prob.pkl")
         # Save the read_dict as a pickle file
         with open(file_path, 'wb') as f:
             pickle.dump(read_probabilities, f)
+        i+=1
         
         end = time.time()
         interval = (end-start)/60
         print(f"time_to_generate {total_reads_per_sample} reads {interval} min")
-
-# # Function to generate short read counts proportionate to isoform proportions for a single sample
-# def generate_read_counts(sample_dict, total_reads, min_ambiguity, max_ambiguity):
-#     """
-#     Generate read counts for each isoform proportionate to their presence in the sample.
     
-#     Args:
-#         sample_dict (dict): Dictionary with isoform proportions.
-#         total_reads (int): Total number of reads to generate.
     
-#     Returns:
-#         dict: Dictionary of reads and their assigned isoforms.
-#     """
-#     read_dict = defaultdict(list)
+    ## comment
+    all_keys = set(theta_S1.keys()).union(set(theta_S2.keys()))
+    values_S1 = [theta_S1.get(key, 0) for key in all_keys]
+    values_S2 = [theta_S2.get(key, 0) for key in all_keys]
+    corr, _ = spearmanr(values_S1, values_S2)
+    print(f"SP corr {corr}")
+    # Get the keys (isoforms) for each counter
+    keys_S1 = set(theta_S1.keys())
+    keys_S2 = set(theta_S2.keys())
 
-#     # Step 1: Generate reads based on isoform proportions
-#     isoform_read_counts = {}
-#     for isoform, proportion in sample_dict.items():
-#         isoform_read_counts[isoform] = int(proportion * total_reads)
-
-#     # Step 2: Create a list of isoforms with repetition proportionate to their read count
-#     isoform_list = []
-#     for isoform, count in isoform_read_counts.items():
-#         isoform_list.extend([isoform] * count)  # Repeat isoform proportionally to its count
-
-#     # Shuffle the isoform list to simulate random assignment of reads
-#     random.shuffle(isoform_list)
-
-#     # Step 3: Generate read hashes and assign isoforms with ambiguity (3-10 isoforms per read)
-#     for read_index in range(total_reads):
-#         read_hash = generate_read_hash(f"read_{read_index}")
-
-#         # Randomly assign this read to between 3 and 10 isoforms (with proportion in mind)
-#         num_isoforms_to_assign = random.randint(min_ambiguity, max_ambiguity)
-#         assigned_isoforms = random.sample(isoform_list, num_isoforms_to_assign)
-
-#         # Assign these isoforms to the read
-#         read_dict[read_hash].extend(assigned_isoforms)
-
-#     return read_dict
-
-# # Function to generate short read counts proportionate to isoform proportions for multiple samples
-# def generate_read_counts(sample_dict, total_reads, min_ambiguity, max_ambiguity):
-#     """
-#     Generate read counts for each isoform proportionate to their presence in the sample.
-    
-#     Args:
-#         sample_dict (dict): Dictionary with isoform proportions.
-#         total_reads (int): Total number of reads to generate.
-#         min_ambiguity (int): Minimum number of isoforms a read can be ambiguously assigned to.
-#         max_ambiguity (int): Maximum number of isoforms a read can be ambiguously assigned to.
-    
-#     Returns:
-#         dict: Dictionary of reads and their assigned isoforms.
-#     """
-#     read_dict = defaultdict(dict)
-
-#     # Step 1: Generate reads based on isoform proportions
-#     isoform_read_counts = {}
-#     for isoform, proportion in sample_dict.items():
-#         isoform_read_counts[isoform] = int(proportion * total_reads)
-
-#     # Step 2: Create a list of isoforms with repetition proportionate to their read count
-#     isoform_list = []
-#     for isoform, count in isoform_read_counts.items():
-#         isoform_list.extend([isoform] * count)  # Repeat isoform proportionally to its count
-
-#     # Shuffle the isoform list to simulate random assignment of reads
-#     random.shuffle(isoform_list)
-
-#     # Step 3: Generate read hashes and assign isoforms with ambiguity
-#     for read_index in range(total_reads):
-#         read_hash = generate_read_hash(f"read_{read_index}")
-
-#         # Randomly assign this read to between min_ambiguity and max_ambiguity isoforms (with proportion in mind)
-#         num_isoforms_to_assign = random.randint(min_ambiguity, max_ambiguity)
-#         assigned_isoforms = random.sample(isoform_list, num_isoforms_to_assign)  # Use set to ensure uniqueness
-
-#         # Assign isoforms with equal proportion (assuming ambiguity is equally likely between assigned isoforms)
-#         proportion_per_isoform = 1.0 / num_isoforms_to_assign
-#         read_dict[read_hash] = {isoform: proportion_per_isoform for isoform in assigned_isoforms}
-
-#     return read_dict
+    # Find the intersection of the two sets (common isoforms)
+    common_isoforms = keys_S1.intersection(keys_S2)
+    print(f"common_isoform_num {len(common_isoforms)}")
+    print()
+    return corr
 
 
-# Function to generate read counts proportionate to isoform proportions for multiple samples using multinomial distribution
-# def generate_read_counts(sample_dict, total_reads, min_ambiguity, max_ambiguity, isoform_lengths, min_read_length, avg_read_length, max_read_length, std_dev=30):
-#     """
-#     Generate read counts for each isoform proportionate to their presence in the sample using multinomial distribution.
-
-#     Args:
-#         sample_dict (dict): Dictionary with isoform proportions.
-#         total_reads (int): Total number of reads to generate.
-#         min_ambiguity (int): Minimum number of isoforms a read can be ambiguously assigned to.
-#         max_ambiguity (int): Maximum number of isoforms a read can be ambiguously assigned to.
-
-#     Returns:
-#         dict: Dictionary of reads and their assigned isoforms.
-#     """
-#     read_dict = defaultdict(dict)
-#     read_probabilities = defaultdict(dict)
-
-#     # Step 1: Use multinomial distribution to generate read counts based on isoform proportions
-#     isoforms = list(sample_dict.keys())
-#     proportions = list(sample_dict.values())
-
-#     # Multinomial distribution gives the number of reads assigned to each isoform
-#     read_counts = np.random.multinomial(total_reads, proportions)
-
-#     # Step 2: Create a list of isoforms with repetition proportionate to their read count
-#     isoform_list = []
-#     for isoform, count in zip(isoforms, read_counts):
-#         isoform_list.extend([isoform] * count)  # Repeat isoform proportionally to its count
-
-#     # Shuffle the isoform list to simulate random assignment of reads
-#     random.shuffle(isoform_list)
-
-#     # Step 3: Generate read hashes and assign isoforms with ambiguity
-#     for read_index in range(total_reads):
-#         read_hash = generate_read_hash(f"read_{read_index}")
-
-#         # Randomly assign this read to between min_ambiguity and max_ambiguity isoforms, maintaining proportions
-#         num_isoforms_to_assign = random.randint(min_ambiguity, max_ambiguity)
-#         assigned_isoforms = random.sample(isoform_list, num_isoforms_to_assign)  # Sample from isoform_list, not set
-
-#         # Assign isoforms with equal proportion (assuming ambiguity is equally likely between assigned isoforms)
-#         # proportion_per_isoform = 1.0 / num_isoforms_to_assign
-#         proportion_per_isoform = 1.0 / len(set(assigned_isoforms))
-#         read_dict[read_hash] = {isoform: proportion_per_isoform for isoform in assigned_isoforms}
-
-#         # Generate lengths from a Gaussian distribution
-#         lengths = int(np.random.normal(loc=avg_read_length, scale=std_dev))
-        
-#         # Generate a random read length between min_read_length and max_read_length
-#         read_length = max(min_read_length, min(max_read_length, lengths))
-
-#         # Step 4: Calculate the probabilities for each isoform
-#         isoform_probs = {}
-
-#         for isoform in set(assigned_isoforms):
-#             isoform_length = isoform_lengths.get(isoform, 0)  # Get the isoform length
-#             if isoform_length > read_length:
-#                 # Calculate the probability using the formula: 1 / (isoform_length - read_length + 1)
-#                 denominator = (isoform_length - read_length + 1)
-#                 # Check for potential division by zero
-#                 if denominator == 0:
-#                         prob = np.nan  # This will trigger the NaN check below
-#                 else:
-#                     prob = 1 / denominator
-#                 # Check if prob is NaN or less than 1
-#                 if np.isnan(prob) or prob < 0:
-#                     isoform_probs[isoform] = 1
-#                 else:
-#                     isoform_probs[isoform] = prob
-
-#         # Store the read's isoform probabilities
-#         read_probabilities[read_hash] = isoform_probs
-
-#     return read_dict, read_probabilities
-
-# def generate_read_counts_optimized(sample_dict, total_reads, min_ambiguity, max_ambiguity, isoform_lengths, min_read_length, avg_read_length, max_read_length, std_dev=30):
-#     """
-#     Generate read counts for each isoform proportionate to their presence in the sample using multinomial distribution.
-#     Args:
-#         sample_dict (dict): Dictionary with isoform proportions.
-#         total_reads (int): Total number of reads to generate.
-#         min_ambiguity (int): Minimum number of isoforms a read can be ambiguously assigned to.
-#         max_ambiguity (int): Maximum number of isoforms a read can be ambiguously assigned to.
-#         isoform_lengths (dict): Dictionary with isoform lengths.
-#         min_read_length (int): Minimum read length to generate.
-#         avg_read_length (int): Average read length for the Gaussian distribution.
-#         max_read_length (int): Maximum read length to generate.
-#         std_dev (int): Standard deviation for read length Gaussian distribution.
-#     Returns:
-#         dict: Dictionary of reads and their assigned isoforms and probabilities.
-#     """
-#     read_dict = defaultdict(dict)
-#     read_probabilities = defaultdict(dict)
-
-#     # Step 1: Use multinomial distribution to generate read counts based on isoform proportions
-#     isoforms = list(sample_dict.keys())
-#     proportions = np.array(list(sample_dict.values()), dtype=np.float64)
-
-#     # Multinomial distribution gives the number of reads assigned to each isoform
-#     read_counts = np.random.multinomial(total_reads, proportions)
-
-#     # Step 2: Create a list of isoforms with repetition proportionate to their read count
-#     isoform_list = np.repeat(isoforms, read_counts)
-
-#     # Shuffle the isoform list to simulate random assignment of reads
-#     np.random.shuffle(isoform_list)
-
-#     # Step 3: Precompute isoform lengths minus read lengths to avoid recalculating
-#     #inverse_lengths = {isoform: (isoform_lengths[isoform] - min_read_length + 1) for isoform in isoforms}
-    
-#     # Step 4: Generate read hashes and assign isoforms with ambiguity
-#     for read_index in range(total_reads):
-#         read_hash = f"SRR{random.randint(60000000, 70000000)}.{random.randint(1, 10)}"
-
-#         # Randomly assign this read to between min_ambiguity and max_ambiguity isoforms
-#         num_isoforms_to_assign = random.randint(min_ambiguity, max_ambiguity)
-#         assigned_isoforms = np.random.choice(isoform_list, size=num_isoforms_to_assign, replace=False)
-#         unique_assigned_isoforms = assigned_isoforms
-
-#         # Assign equal proportions for each isoform
-#         proportion_per_isoform = 1.0 / len(unique_assigned_isoforms )
-#         read_dict[read_hash] = {isoform: proportion_per_isoform for isoform in unique_assigned_isoforms }
-
-#         # Step 5: Generate a random read length from a Gaussian distribution
-#         read_length = np.clip(int(np.random.normal(loc=avg_read_length, scale=std_dev)), min_read_length, max_read_length)
-
-#         # Step 6: Calculate the probabilities for each isoform based on the read length
-#         isoform_probs = {}
-#         for isoform in unique_assigned_isoforms:
-#             isoform_length = isoform_lengths.get(isoform, 0)
-#             denominator = isoform_length - read_length + 1
-
-#             # Ensure denominator is positive and valid
-#             if denominator > 0:
-#                 isoform_probs[isoform] = 1.0 / denominator
-#             else:
-#                 isoform_probs[isoform] = 1.0  # Fallback if something goes wrong
-
-#         # Store the probabilities
-#         read_probabilities[read_hash] = isoform_probs
-
-#     return read_dict, read_probabilities
 
 def generate_read_counts_optimized(sample_dict, total_reads, min_ambiguity, max_ambiguity, isoform_lengths, min_read_length, avg_read_length, max_read_length, std_dev=30):
     """
@@ -486,15 +333,6 @@ def generate_read_counts_optimized(sample_dict, total_reads, min_ambiguity, max_
     # Step 1: List of isoforms and their proportions
     isoforms = list(sample_dict.keys())  # List of isoforms
     proportions = np.array(list(sample_dict.values()), dtype=np.float64)  # Proportions for each isoform
-
-    # # Step 2: Multinomial distribution to generate the number of reads assigned to each isoform
-    # read_counts = np.random.multinomial(total_reads, proportions)
-
-    # # Step 3: Create a list of isoforms with repetition proportionate to their read count
-    # isoform_list = np.repeat(isoforms, read_counts)
-
-    # # Shuffle the isoform list to simulate random assignment of reads
-    # np.random.shuffle(isoform_list)
 
     # Step 4: Generate read hashes and assign isoforms with ambiguity, respecting proportions
     for read_index in range(total_reads):
@@ -528,12 +366,94 @@ def generate_read_counts_optimized(sample_dict, total_reads, min_ambiguity, max_
 
         # Store the probabilities for this read
         read_probabilities[read_hash] = isoform_probs
-        print(f"{read_index}_DONE")
+        #print(f"{read_index}_DONE")
 
     return read_dict, read_probabilities
 
+# Function to generate read counts proportionate to isoform proportions for multiple samples using multinomial distribution
+def generate_read_counts(sample_dict, total_reads, min_ambiguity, max_ambiguity, isoform_lengths, min_read_length, avg_read_length, max_read_length, std_dev=30):
+    """
+    Generate read counts for each isoform proportionate to their presence in the sample using multinomial distribution.
+
+    Args:
+        sample_dict (dict): Dictionary with isoform proportions.
+        total_reads (int): Total number of reads to generate.
+        min_ambiguity (int): Minimum number of isoforms a read can be ambiguously assigned to.
+        max_ambiguity (int): Maximum number of isoforms a read can be ambiguously assigned to.
+
+    Returns:
+        dict: Dictionary of reads and their assigned isoforms.
+    """
+    read_dict = defaultdict(dict)
+    read_probabilities = defaultdict(dict)
+
+    # Step 1: Use multinomial distribution to generate read counts based on isoform proportions
+    isoforms = list(sample_dict.keys())
+    proportions = list(sample_dict.values())
+
+    # Multinomial distribution gives the number of reads assigned to each isoform
+    read_counts = np.random.multinomial(total_reads, proportions)
+
+    # Step 2: Create a list of isoforms with repetition proportionate to their read count
+    isoform_list = []
+    for isoform, count in zip(isoforms, read_counts):
+        isoform_list.extend([isoform] * count)  # Repeat isoform proportionally to its count
+
+    # Shuffle the isoform list to simulate random assignment of reads
+    random.shuffle(isoform_list)
+
+    # Step 3: Generate read hashes and assign isoforms with ambiguity
+    i=0
+    for read_index in range(total_reads):
+        read_hash = generate_read_hash(f"read_{read_index}")
+
+        # Randomly assign this read to between min_ambiguity and max_ambiguity isoforms, maintaining proportions
+        num_isoforms_to_assign = random.randint(min_ambiguity, max_ambiguity)
+        assigned_isoforms = random.sample(isoform_list, num_isoforms_to_assign)  # Sample from isoform_list, not set
+        unique_assigned_isoforms = (set(assigned_isoforms))
+
+        # Assign isoforms with equal proportion (assuming ambiguity is equally likely between assigned isoforms)
+        # proportion_per_isoform = 1.0 / num_isoforms_to_assign
+        proportion_per_isoform = 1.0 / len(unique_assigned_isoforms)
+        read_dict[read_hash] = {isoform: proportion_per_isoform for isoform in unique_assigned_isoforms}
+
+        # Generate lengths from a Gaussian distribution
+        lengths = int(np.random.normal(loc=avg_read_length, scale=std_dev))
+        
+        # Generate a random read length between min_read_length and max_read_length
+        read_length = max(min_read_length, min(max_read_length, lengths))
+
+        # Step 4: Calculate the probabilities for each isoform
+        isoform_probs = {}
+
+        for isoform in unique_assigned_isoforms:
+            isoform_length = isoform_lengths.get(isoform, 0)  # Get the isoform length
+            if isoform_length > read_length:
+                # Calculate the probability using the formula: 1 / (isoform_length - read_length + 1)
+                denominator = (isoform_length - read_length + 1)
+                # Check for potential division by zero
+                if denominator == 0:
+                        prob = np.nan  # This will trigger the NaN check below
+                else:
+                    prob = 1 / denominator
+                # Check if prob is NaN or less than 1
+                if np.isnan(prob) or prob < 0:
+                    isoform_probs[isoform] = 1
+                else:
+                    isoform_probs[isoform] = prob
+            else:
+                isoform_probs[isoform] = 1
+                i+=1
+                print(f"len longer {i}")
+
+        # Store the read's isoform probabilities
+        read_probabilities[read_hash] = isoform_probs
+
+    return read_dict, read_probabilities
+
+
 # Function to generate isoform lengths based on a Gaussian distribution, with same lengths for all samples
-def generate_isoform_lengths(isoform_proportion_samples, avg_length=1800, std_dev=300, min_length=300):
+def generate_isoform_lengths(isoform_proportion_samples, avg_length=2000, std_dev=100, min_length=300):
     """
     Generate a list of isoform lengths using a Gaussian distribution, ensuring the same lengths for all samples.
     
@@ -568,78 +488,99 @@ def generate_isoform_lengths(isoform_proportion_samples, avg_length=1800, std_de
     
     return isoform_lengths
 
+
 # Main function
 def main():
 
+    ###### GENERATE ONLY 2 SAMPLES AT A TIME ########
+
     start = time.time()
 
-    isoform_number= int(200e3)     # How many isoforms per sample
-    alpha_initial = 80e3      # Initial alpha summation
+    isoform_number= int(150e3)     # How many isoforms per sample
+    alpha_initial = 100e3      # Initial alpha summation
     num_samples = 2            # Specify the number of samples you want to generate
-    simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation'
+    simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round4'
 
-    short_total_reads = int(2e3)   # total number of short reads
+    short_total_reads = int(2e7)   # total number of short reads
     short_min_ambiguity = int(3)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
     short_max_ambiguity = int(10)
     short_min_read_length = int(50)     # short read minimum length
     short_avg_read_length = int(150)    # average length
     short_max_read_length =  int(400)    # maximum length
 
-    long_total_reads = int(2e3)   # total number of long reads
+    long_total_reads = int(2e6)   # total number of long reads
     long_min_ambiguity = int(1)    # long_min_ambiguity, long_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
     long_max_ambiguity = int(4)
     long_min_read_length = int(1500)     # long read minimum length
     long_avg_read_length = int(1800)    # average length
     long_max_read_length =  int(2000)    # maximum length
-
-    read_name = 'SHORT' # (AT) 
     
-    ## DUMMY
-    # isoform_number= int(15)     # How many isoforms per sample
-    # alpha_initial = 10      # Initial alpha summation
+    ### DUMMY
+    # isoform_number= int(150)     # How many isoforms per sample
+    # alpha_initial = 100      # Initial alpha summation
     # num_samples = 2             # Specify the number of samples you want to generate
-    # simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation'
+    # simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/trial'
     
-    # short_total_reads = int(200)   # total number of short reads
+    # short_total_reads = int(20000)   # total number of short reads
     # short_min_ambiguity = int(10)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
     # short_max_ambiguity = int(20)
     # short_min_read_length = int(50)     # short read minimum length
     # short_avg_read_length = int(150)    # average length
     # short_max_read_length =  int(400)    # maximum length
 
-    # long_total_reads = int(200)   # total number of long reads
+    # long_total_reads = int(2000)   # total number of long reads
     # long_min_ambiguity = int(1)    # long_min_ambiguity, long_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
     # long_max_ambiguity = int(6)
     # long_min_read_length = int(1500)     # long read minimum length
     # long_avg_read_length = int(1800)    # average length
     # long_max_read_length =  int(2000)    # maximum length
+    
+    element_num = isoform_number 
+    desired_corr=0.65
        
+    read_name = 'SHORT' # (AT)
 
-    element_num = isoform_number
     # Parameters for the Dirichlet distribution
     alpha = assign_alpha(element_num, alpha_initial)
 
     # Step 1: Generate Dirichlet samples
-    proportion_samples = generate_dirichlet_samples(alpha, num_samples)
-    desired_corr=0.8
-    proportion_samples_corr = generate_correlated_dirichlet_samples(alpha, desired_corr, num_samples)
-
+    proportion_samples = generate_dirichlet_samples(alpha, desired_corr, num_samples)
+    
     # Step 2: Generate hashed names for each element in the samples
     isoform_proportion_samples = create_sample_hashes(proportion_samples, element_num)
-    file_path = os.path.join(simulation_dir, f"{read_name}_isoform_abundance_ground_truth.pkl")
-    # Save the read_dict as a pickle file
-    with open(file_path, 'wb') as f:
-        pickle.dump(isoform_proportion_samples, f)
-
+    
     # Generate isoform lengths for all samples (same lengths across samples)
     isoform_lengths = generate_isoform_lengths(isoform_proportion_samples)
 
     # Generate read counts and assignments for multiple samples
-    generate_read_counts_multiple_samples(isoform_proportion_samples, short_total_reads, isoform_lengths, simulation_dir, 
+    corr = generate_read_counts_multiple_samples(isoform_proportion_samples, short_total_reads, isoform_lengths, simulation_dir, 
         short_min_ambiguity, short_max_ambiguity,  short_min_read_length, short_avg_read_length, short_max_read_length, read_name = 'SHORT')
-    # generate_read_counts_multiple_samples(isoform_proportion_samples, long_total_reads, isoform_lengths, simulation_dir, 
-    #     long_min_ambiguity, long_max_ambiguity,  long_min_read_length, long_avg_read_length, long_max_read_length, read_name = 'LONG')
+    file_path = os.path.join(simulation_dir, f"{read_name}{timestamp}_spCorr_{corr:.2f}_isoformAbundance_groundTruth.pkl")
+    # Save the read_dict as a pickle file
+    with open(file_path, 'wb') as f:
+        pickle.dump(isoform_proportion_samples, f)
+
+
+
+    read_name = 'LONG' # (AT)
+    proportion_samples_new = generate_dirichlet_samples(alpha, desired_corr, num_samples)
     
+    # Step 5: Reuse the same isoform names (hashes) and lengths, but with new proportions
+    isoform_proportion_samples_new = {}
+    for sample_name, isoform_proportions in isoform_proportion_samples.items():
+        isoform_proportion_samples_new[sample_name] = {}
+        for idx, hash_name in enumerate(isoform_proportions.keys()):
+            # Assign new proportions to the same hash names (isoform names)
+            isoform_proportion_samples_new[sample_name][hash_name] = proportion_samples_new[int(sample_name[-1])-1][idx]
+    
+    corr_new = generate_read_counts_multiple_samples(isoform_proportion_samples_new, long_total_reads, isoform_lengths, simulation_dir, 
+        long_min_ambiguity, long_max_ambiguity,  long_min_read_length, long_avg_read_length, long_max_read_length, read_name = 'LONG')
+    
+    file_path = os.path.join(simulation_dir, f"{read_name}{timestamp}_spCorr_{corr_new:.2f}_isoformAbundance_groundTruth.pkl")
+    # Save the read_dict as a pickle file
+    with open(file_path, 'wb') as f:
+        pickle.dump(isoform_proportion_samples_new, f)
+
     end = time.time()
     interval = (end-start)/60
     print(f"total_time {interval} min")
