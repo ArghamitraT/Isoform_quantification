@@ -496,44 +496,44 @@ def main():
 
     start = time.time()
 
-    isoform_number= int(150e3)     # How many isoforms per sample
-    alpha_initial = 100e3      # Initial alpha summation
-    num_samples = 2            # Specify the number of samples you want to generate
-    simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round4'
+    # isoform_number= int(150e3)     # How many isoforms per sample
+    # alpha_initial = 100e3      # Initial alpha summation
+    # num_samples = 2            # Specify the number of samples you want to generate
+    # simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round4'
 
-    short_total_reads = int(2e7)   # total number of short reads
-    short_min_ambiguity = int(3)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
-    short_max_ambiguity = int(10)
-    short_min_read_length = int(50)     # short read minimum length
-    short_avg_read_length = int(150)    # average length
-    short_max_read_length =  int(400)    # maximum length
-
-    long_total_reads = int(2e6)   # total number of long reads
-    long_min_ambiguity = int(1)    # long_min_ambiguity, long_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
-    long_max_ambiguity = int(4)
-    long_min_read_length = int(1500)     # long read minimum length
-    long_avg_read_length = int(1800)    # average length
-    long_max_read_length =  int(2000)    # maximum length
-    
-    ### DUMMY
-    # isoform_number= int(150)     # How many isoforms per sample
-    # alpha_initial = 100      # Initial alpha summation
-    # num_samples = 2             # Specify the number of samples you want to generate
-    # simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/trial'
-    
-    # short_total_reads = int(20000)   # total number of short reads
-    # short_min_ambiguity = int(10)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
-    # short_max_ambiguity = int(20)
+    # short_total_reads = int(2e7)   # total number of short reads
+    # short_min_ambiguity = int(3)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
+    # short_max_ambiguity = int(10)
     # short_min_read_length = int(50)     # short read minimum length
     # short_avg_read_length = int(150)    # average length
     # short_max_read_length =  int(400)    # maximum length
 
-    # long_total_reads = int(2000)   # total number of long reads
+    # long_total_reads = int(2e6)   # total number of long reads
     # long_min_ambiguity = int(1)    # long_min_ambiguity, long_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
-    # long_max_ambiguity = int(6)
+    # long_max_ambiguity = int(4)
     # long_min_read_length = int(1500)     # long read minimum length
     # long_avg_read_length = int(1800)    # average length
     # long_max_read_length =  int(2000)    # maximum length
+    
+    ### DUMMY
+    isoform_number= int(15)     # How many isoforms per sample
+    alpha_initial = 10      # Initial alpha summation
+    num_samples = 2             # Specify the number of samples you want to generate
+    simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/trial'
+    
+    short_total_reads = int(2000)   # total number of short reads
+    short_min_ambiguity = int(10)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
+    short_max_ambiguity = int(20)
+    short_min_read_length = int(50)     # short read minimum length
+    short_avg_read_length = int(150)    # average length
+    short_max_read_length =  int(400)    # maximum length
+
+    long_total_reads = int(200)   # total number of long reads
+    long_min_ambiguity = int(1)    # long_min_ambiguity, long_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
+    long_max_ambiguity = int(6)
+    long_min_read_length = int(1500)     # long read minimum length
+    long_avg_read_length = int(1800)    # average length
+    long_max_read_length =  int(2000)    # maximum length
     
     element_num = isoform_number 
     desired_corr=0.65

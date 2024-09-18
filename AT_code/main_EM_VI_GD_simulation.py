@@ -77,9 +77,10 @@ load_filename = args.load_filename
 # sample1 = main_folder + 'ds_2_num1_aln_02_long.bam'
 # sample2 = main_folder + 'ds_100_num1_aln_02_short.bam'
 # output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_PacIllu_VIGD_token_00000')
-# sample1 = 'SHORT_2024_09_11__00_25_31_sample_1' 
-# sample2 = 'LONG_2024_09_11__00_25_31_sample_1'
-# output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_PacIllu_VIGD_token_00000')
+main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round4/'
+sample1 = 'SHORT_2024_09_11__00_25_31_sample_1' 
+sample2 = 'LONG_2024_09_11__00_25_31_sample_1'
+output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_simulation_VIGD_token_00000')
 
 
 # Print all the parameters

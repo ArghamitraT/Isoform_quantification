@@ -12,7 +12,7 @@ import os
 import re
 from collections import defaultdict
 from scipy.interpolate import UnivariateSpline
-import seaborn as sns
+# import seaborn as sns
 from scipy.integrate import trapz
 import sys
 import csv
@@ -151,8 +151,8 @@ def csv_tpm_processing(file_path1, file_path2, suffixes=('_quant', '_truth')):
 def format_file_name(file_path1, file_path2):
     file_name1 = file_path1.split('/')[-1]
     file_name2 = file_path2.split('/')[-1]
-    part1 = "_".join(file_name1.split('_')[3:11])
-    part2 = "_".join(file_name2.split('_')[3:11])
+    part1 = "_".join(file_name1.split('_')[3:13])
+    part2 = "_".join(file_name2.split('_')[3:13])
 
     print()
     return part1, part2
@@ -187,10 +187,14 @@ def pair_files(directory, pair_type):
     short_file_pairs = defaultdict(list)
     file_info = defaultdict(list)
 
+    ## (AT)
     # Updated regular expression to match the files with additional metrics
+    # file_pattern = re.compile(
+    #     r'output_PacIllu_VIGD_token_(\d+)_sample(\d+)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_GDlr_(0\.\d+)_AlphaInitial_(\d+(?:\.\d+)?)_EMround_(\d+)_'
+    # )
     file_pattern = re.compile(
-        r'output_PacIllu_VIGD_token_(\d+)_sample(\d+)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_GDlr_(0\.\d+)_AlphaInitial_(\d+(?:\.\d+)?)_EMround_(\d+)_'
-    )
+    r'output_Simulation_VIGD_token_(\d+)_sample(\d+)_file(\d+)_ds_(\d+)_num(\d+)_aln_(\d+)_(long|short)_file(\d+)_ds_(\d+)_num(\d+)_aln_(\d+)_(long|short)_GDlr_(0\.\d+)_AlphaInitial_(\d+(?:\.\d+)?)_EMround_(\d+)_'
+)
     # List all files in the directory
     for file in os.listdir(directory):
         match = file_pattern.search(file)
@@ -215,30 +219,31 @@ def pair_files(directory, pair_type):
     
     paired_files = []
     ### DO NOT ERASE
-    for key, files in long_file_pairs.items():
-        paired_files.append((files[0][0], files[1][0]))
+    # for key, files in long_file_pairs.items():
+    #     paired_files.append((files[0][0], files[1][0]))
     
+    ## (AT)
     # Create long read pairs
-    # if pair_type == 'replica':
-    #     for key, files in long_file_pairs.items():
-    #         if len(files) > 1:  # Ensure there are multiple replicas
-    #             # Pair long read files for each replica
-    #             for i in range(len(files)):
-    #                 for j in range(i + 1, len(files)):
-    #                     paired_files.append((files[i][0], files[j][0]))
+    if pair_type == 'replica':
+        for key, files in long_file_pairs.items():
+            if len(files) > 1:  # Ensure there are multiple replicas
+                # Pair long read files for each replica
+                for i in range(len(files)):
+                    for j in range(i + 1, len(files)):
+                        paired_files.append((files[i][0], files[j][0]))
                         
-    #                     # Corresponding short read files for each replica
-    #                     sr_file1 = short_file_pairs[files[i][1]][0][0]
-    #                     sr_file2 = short_file_pairs[files[j][1]][0][0]
-    #                     paired_files.append((sr_file1, sr_file2))
+                        # Corresponding short read files for each replica
+                        sr_file1 = short_file_pairs[files[i][1]][0][0]
+                        sr_file2 = short_file_pairs[files[j][1]][0][0]
+                        paired_files.append((sr_file1, sr_file2))
 
-    # # This will give you LR and SR file names those were trained together, eg: lr_01_replica1+sr_01_replica2,
-    # elif pair_type == 'within_trainee':
-    #     for key, files in long_file_pairs.items():
-    #         for i in range(len(files)):
-    #             lr_file = files[i][0]
-    #             sr_file = short_file_pairs[files[i][1]][0][0]
-    #             paired_files.append((lr_file, sr_file))
+    # This will give you LR and SR file names those were trained together, eg: lr_01_replica1+sr_01_replica2,
+    elif pair_type == 'within_trainee':
+        for key, files in long_file_pairs.items():
+            for i in range(len(files)):
+                lr_file = files[i][0]
+                sr_file = short_file_pairs[files[i][1]][0][0]
+                paired_files.append((lr_file, sr_file))
 
     return paired_files
 
@@ -340,9 +345,14 @@ def merge_csv_files(file1, file2, output_dir):
     print(f'Merged file saved as {output_file}')
 
 def csv_row_parsing(pair):
+
+    ## (AT)
+    # file_pattern = re.compile(
+    #         r'output_PacIllu_VIGD_token_(\d+)_sample(\d+)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_GDlr_(0\.\d+)_AlphaInitial_(\d+(?:\.\d+)?)_EMround_(\d+)_'
+    #     )
     file_pattern = re.compile(
-            r'output_PacIllu_VIGD_token_(\d+)_sample(\d+)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_file(\d+)_ds(\d+)num(\d+)aln(\d+)(long|short)_GDlr_(0\.\d+)_AlphaInitial_(\d+(?:\.\d+)?)_EMround_(\d+)_'
-        )
+    r'output_Simulation_VIGD_token_(\d+)_sample(\d+)_file(\d+)_ds_(\d+)_num(\d+)_aln_(\d+)_(long|short)_file(\d+)_ds_(\d+)_num(\d+)_aln_(\d+)_(long|short)_GDlr_(0\.\d+)_AlphaInitial_(\d+(?:\.\d+)?)_EMround_(\d+)_'
+)
     i = 0
     for file in pair:
         match = file_pattern.search(file)
@@ -369,7 +379,7 @@ def csv_row_parsing(pair):
 
 
 def main():
-    experiment_file = 'exprmnt_2024_09_02__17_26_30'
+    experiment_file = 'exprmnt_2024_09_11__10_55_34'
     main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/'
     directory = os.path.join(main_dir, experiment_file, 'files/output_files/')
     # paired_files, 2 types
@@ -402,7 +412,7 @@ def main():
             row_writing = [spearman_corr, ACVC, IM, GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2]
             
             # Write the row to the CSV file
-            writer.writerow([row_writing])
+            writer.writerow(row_writing)
 
 
 
