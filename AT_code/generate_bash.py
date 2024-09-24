@@ -36,6 +36,11 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
     "source ~/.bashrc\n" + \
     "conda activate NanoCount_5\n" + \
     f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename}"
+    
+    # (AT)
+    # f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename}"
+    
+    # f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename}"
 
     with open(prg_file_path, "w") as f:
         f.write(header)
@@ -54,7 +59,7 @@ def create_slurm_file(prg_file_path, job_name, slurm_file_path):
     "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
     "##NECESSARY JOB SPECIFICATIONS\n" + \
     f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
-    "#SBATCH --time=80:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
+    "#SBATCH --time=30:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
     "#SBATCH --mem=256G              \n" + \
     "#SBATCH --cpus-per-task=8                   \n" + \
     "#SBATCH --mail-type=END,FAIL    \n" + \
@@ -88,17 +93,44 @@ output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 
 """ **CHANGE (AT)** THE MAIN FOLDER NAME """
 # **** the first element should be LR, the second should be SR ****
-# samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'],
-#                     ['ds_2_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam']]
-samples_file_names = [ ['SHORT_2024_09_11__00_28_11_sample_1', 'LONG_2024_09_11__00_28_11_sample_1'],
-                        ['SHORT_2024_09_11__00_28_11_sample_2', 'LONG_2024_09_11__00_28_11_sample_2']]
 # samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'], 
 #                       ['ds_10_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'],
 #                       ['ds_2_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam'], 
 #                       ['ds_10_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam'],
 #                       ['ds_5_num1_aln_03_long.bam', 'ds_100_num1_aln_03_short.bam'], 
 #                       ['ds_10_num1_aln_03_long.bam', 'ds_100_num1_aln_03_short.bam']]
-#samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam']]
+
+## EXP 3
+# samples_file_names = [['ds_10_num1_aln_01_long', 'ds_100_num1_aln_01_short'], 
+#                       ['ds_10_num1_aln_02_long', 'ds_100_num1_aln_02_short']]
+
+## EXP 4
+# samples_file_names = [['ds_10_num1_aln_11_long', 'ds_100_num1_aln_01_short'], 
+#                       ['ds_10_num1_aln_12_long', 'ds_100_num1_aln_02_short'],
+#                       ['ds_10_num1_aln_01_long', 'ds_100_num1_aln_11_short'], 
+#                       ['ds_10_num1_aln_02_long', 'ds_100_num1_aln_12_short']]
+
+# ## EXP 2
+# samples_file_names = [['ds_10_num1_aln_01_long', 'ds_100_num1_aln_01_short'], 
+#                       ['ds_10_num1_aln_02_long', 'ds_100_num1_aln_02_short'],
+#                       ['ds_10_num1_aln_11_long', 'ds_100_num1_aln_11_short'],
+#                       ['ds_10_num1_aln_12_long', 'ds_100_num1_aln_12_short']]
+
+# # EXP 5
+# samples_file_names = [[['ds_10_num1_aln_01_long','ds_100_num1_aln_01_short'], ['ds_10_num1_aln_11_long','ds_100_num1_aln_11_short']], 
+#                       [['ds_10_num1_aln_02_long','ds_100_num1_aln_02_short'], ['ds_10_num1_aln_12_long','ds_100_num1_aln_12_short']]]
+
+## EXP 1
+samples_file_names = [['ds_10_num1_aln_01_long', 'NA'], 
+                      ['ds_10_num1_aln_02_long', 'NA'],
+                      ['ds_10_num1_aln_11_long', 'NA'],
+                      ['ds_10_num1_aln_12_long', 'NA'],
+                      ['ds_100_num1_aln_01_short', 'NA'], 
+                      ['ds_100_num1_aln_02_short', 'NA'],
+                      ['ds_100_num1_aln_11_short', 'NA'],
+                      ['ds_100_num1_aln_12_short', 'NA']]
+
+
 """ **CHANGE (AT)** THE DIRECTORY NAME FROM WHERE WEIGHTS NEEDS TO BE COPIED INTO ./WEIGHTS FOLDER(THE UNIVERSAL WEIGHT FOLDER)"""
 # other_script_names = ['EM_VI_GD.py', 'DirichletOptimizer.py']
 #other_script_names = ['EM_VI_GD_together.py', 'DirichletOptimizer.py']
@@ -110,7 +142,7 @@ copy_needed = 0 #(AT)
 # name_arr = ['main_EM_VI_GD_together.py']
 # name_arr = ['main_EM_VI_GD.py']
 name_arr = ['main_EM_VI_GD_simulation.py']
-alpha_val_arr = [10000, 80000]
+alpha_val_arr = [10000]
 GDlr_val_arr = [0.01]
 EM_round_arr = [25] 
 
@@ -119,7 +151,7 @@ def create_readme():
     readme = open(name, "a")
 
     """ **CHANGE (AT)** WRITE THE COMMENT"""
-    comment = f"Running simulated data for 25 iterations, single sample"
+    comment = f"New simulation: EXPERIMENT 1, WITHOUT gradient descent. details here: https://docs.google.com/document/d/1EP49BPa4FgvuKZONl_4kR-vkayI9Qfs_dJ1-POQKPRA/edit#heading=h.pt6yskkpncc3"
     readme.write(comment)
     readme.close()
 
