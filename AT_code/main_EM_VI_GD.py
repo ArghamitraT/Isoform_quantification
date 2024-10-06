@@ -41,7 +41,7 @@ def create_load_file_path():
 ##main_folder = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/data/'
 
 main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/'
-output_file_default = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/outputTRIAL_PacIllu_VIGD_token_00000')
+output_file_default = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/outputTRIAL_PacIllu_VIGD_token_00000')
 
 # Set up argparse to handle command-line arguments (AT) TAKE A CLOSE LOOK AT THE DEFAULT VALUES
 parser = argparse.ArgumentParser(description="Process BAM files and output results.")
@@ -71,13 +71,17 @@ load_filename = args.load_filename
 
 ## (AT) SIRV
 main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/SIRV/'
+# sample1 = main_folder + 'aln_E0_short.bam'
+# sample2 = main_folder + 'aln_E2_short.bam'
 sample1 = main_folder + 'aln_E0.bam'
 sample2 = main_folder + 'aln_E2.bam'
-output_file = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmntSingleRun_2024_00_00__00_00_00/output_SIRV_VIGD_token_000000'
+# output_file = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmntSingleRun_2024_00_00__00_00_00/output_SIRV_VIGD_token_000000'
 # sample1 = main_folder + 'ds_2_num1_aln_02_long.bam'
 # sample2 = main_folder + 'ds_100_num1_aln_02_short.bam'
 # output_file = os.path.join(os.getcwd(), '../../files/results/exprmnt_2024_08_28__01_31_50/files/outputTRIAL_PacIllu_VIGD_token_000000')
-
+# main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/'
+# sample1 = main_folder + 'ds_100_num1_aln_01_short.bam'
+# sample2 = main_folder + 'ds_5_num1_aln_51_long.bam'
 
 # Print all the parameters
 last_EM_round = 25

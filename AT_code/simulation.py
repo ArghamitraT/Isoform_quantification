@@ -6,13 +6,26 @@ from collections import defaultdict
 import os
 import pickle
 import time
-from scipy.linalg import cholesky
-from scipy.stats import spearmanr, rankdata
+from scipy.stats import spearmanr, rankdata, pearsonr
 from NanoCount.Read import Read
 from NanoCount.common import *
 
 
 timestamp = time.strftime("_%Y_%m_%d__%H_%M_%S")
+# Global counter to track the last read hash
+global_read_counter = 0
+
+def generate_unique_read_number():
+    """
+    Generates a unique read hash using a global counter.
+    
+    Returns:
+        str: A unique read hash.
+    """
+    global global_read_counter
+    global_read_counter += 1
+    return f"read_{global_read_counter}"
+
 
 def calculate_theta_and_alpha_prime_0(all_Zri):
         """
@@ -39,20 +52,6 @@ def calculate_theta_and_alpha_prime_0(all_Zri):
 
         # return abundance_dict, all_alpha, isoform_indices
         return abundance_dict
-
-# Function to generate samples from a Dirichlet distribution
-# def generate_dirichlet_samples(alpha, num_samples):
-#     """
-#     Generate samples from a Dirichlet distribution.
-    
-#     Args:
-#         alpha (list or array): The alpha parameters for the Dirichlet distribution.
-#         num_samples (int): Number of samples to generate.
-    
-#     Returns:
-#         list: List of generated samples, where each sample is a list of 150k elements.
-#     """
-#     return [np.random.dirichlet(alpha) for _ in range(num_samples)]
 
 def generate_correlated_sample(sample1, desired_corr):
     """
@@ -108,7 +107,7 @@ def generate_correlated_dirichlet_samples(alpha, desired_corr, num_samples):
     # Return all samples with the first two having the desired correlation
     return [sample1, sample2] + remaining_samples
 
-def generate_dirichlet_samples(alpha, desired_corr, num_samples):
+def generate_dirichlet_samples(alpha, desired_corr):
     """
     Generate a list of Dirichlet samples with the first two samples having a fixed Spearman correlation.
     
@@ -123,14 +122,15 @@ def generate_dirichlet_samples(alpha, desired_corr, num_samples):
     # Step 1: Generate the first sample from Dirichlet
     sample1 = np.random.dirichlet(alpha)
     
-    # Step 2: Generate a second sample that has the desired Spearman correlation with the first sample
-    sample2 = sample1
+    # # Step 2: Generate a second sample that has the desired Spearman correlation with the first sample
+    # sample2 = sample1
     
-    # Generate remaining samples normally from Dirichlet distribution
-    remaining_samples = [np.random.dirichlet(alpha) for _ in range(num_samples - 2)]
+    # # Generate remaining samples normally from Dirichlet distribution
+    # remaining_samples = [np.random.dirichlet(alpha) for _ in range(num_samples - 2)]
     
-    # Return all samples with the first two having the desired correlation
-    return [sample1, sample2] + remaining_samples
+    # # Return all samples with the first two having the desired correlation
+    # return [sample1, sample2] + remaining_samples
+    return [sample1]
 
 # Function to generate a unique hash for each element
 def generate_isoform_hash(index, element_num):
@@ -240,8 +240,8 @@ def generate_read_hash(index):
     return hash_object.hexdigest()
 
 # Function to generate read counts proportionate to isoform proportions for multiple samples
-def generate_read_counts_multiple_samples(sample_dicts, total_reads_per_sample, isoform_lengths, simulation_dir, 
-                                          min_ambiguity, max_ambiguity, min_read_length, avg_read_length, max_read_length, read_name):
+def generate_read_counts_multiple_samples(numOfSamples, sample_dicts, total_reads_per_sample, isoform_lengths, simulation_dir, 
+                                          min_ambiguity, max_ambiguity, min_read_length, avg_read_length, max_read_length, day, read_name):
     """
     Generate read counts for each isoform in multiple samples proportionate to their presence in the sample.
     
@@ -255,31 +255,44 @@ def generate_read_counts_multiple_samples(sample_dicts, total_reads_per_sample, 
 
     # Loop over each sample in sample_dicts
     i = 0
-    for sample_name, isoform_proportions in sample_dicts.items():
+    #for sample_name, isoform_proportions in sample_dicts.items():
+    for sample_name in range(numOfSamples):
         start = time.time()
-        print(f"Generating reads for {sample_name}...")
+        print(f"Generating reads for {read_name} day {day} sample {sample_name+1}...")
+        isoform_proportions = sample_dicts.get('sample_1')
         # Generate read counts for this sample
         # read_dict, read_probabilities = generate_read_counts(isoform_proportions, total_reads_per_sample, 
         #                         min_ambiguity, max_ambiguity, isoform_lengths, min_read_length, avg_read_length, max_read_length)
         read_dict, read_probabilities = generate_read_counts(isoform_proportions, total_reads_per_sample, 
                                 min_ambiguity, max_ambiguity, isoform_lengths, min_read_length, avg_read_length, max_read_length)
     
-        ## comment
+        # Define the filename for saving
+        if read_name == 'short':
+            ds = 100
+        elif read_name == 'long':
+            ds = 10
+        file_name = f"ds_{ds}_num1_aln_{day}{i+1}_{read_name}"
+        print(f"fileName {i+1}: {file_name}")
+
+        theta = calculate_theta_and_alpha_prime_0(read_dict)
         if i ==0:
-            theta_S1 = calculate_theta_and_alpha_prime_0(read_dict)
+            theta_S1 = theta
             print(f"theta_S1_num {len(theta_S1)}")
         if i == 1:
-            theta_S2 = calculate_theta_and_alpha_prime_0(read_dict)
+            theta_S2 = theta
             print(f"theta_S2_num {len(theta_S2)}")
 
-        # Define the filename for saving
-        file_path = os.path.join(simulation_dir, f"{read_name}{timestamp}_{sample_name}_read_dict.pkl")
+        file_path = os.path.join(simulation_dir, f"{file_name}_theta.pkl")
+        # Save the read_dict as a pickle file
+        with open(file_path, 'wb') as f:
+            pickle.dump(theta, f)
+        
+        file_path = os.path.join(simulation_dir, f"{file_name}_read_dict.pkl")
         # Save the read_dict as a pickle file
         with open(file_path, 'wb') as f:
             pickle.dump(read_dict, f)
 
-        # Define the filename for saving
-        file_path = os.path.join(simulation_dir, f"{read_name}{timestamp}_{sample_name}_read_iso_prob.pkl")
+        file_path = os.path.join(simulation_dir, f"{file_name}_read_iso_prob.pkl")
         # Save the read_dict as a pickle file
         with open(file_path, 'wb') as f:
             pickle.dump(read_probabilities, f)
@@ -290,12 +303,13 @@ def generate_read_counts_multiple_samples(sample_dicts, total_reads_per_sample, 
         print(f"time_to_generate {total_reads_per_sample} reads {interval} min")
     
     
-    ## comment
     all_keys = set(theta_S1.keys()).union(set(theta_S2.keys()))
     values_S1 = [theta_S1.get(key, 0) for key in all_keys]
     values_S2 = [theta_S2.get(key, 0) for key in all_keys]
     corr, _ = spearmanr(values_S1, values_S2)
-    print(f"SP corr {corr}")
+    pearson_corr, _ = pearsonr(values_S1, values_S2)
+    print(f"Spearman_corr {corr:.3f}")
+    print(f"Pearson_corr {pearson_corr:.3f}")
     # Get the keys (isoforms) for each counter
     keys_S1 = set(theta_S1.keys())
     keys_S2 = set(theta_S2.keys())
@@ -405,8 +419,10 @@ def generate_read_counts(sample_dict, total_reads, min_ambiguity, max_ambiguity,
     # Step 3: Generate read hashes and assign isoforms with ambiguity
     i=0
     for read_index in range(total_reads):
-        read_hash = generate_read_hash(f"read_{read_index}")
-
+        
+        #read_hash = generate_read_hash(f"read_{read_index}")
+        read_hash =  generate_unique_read_number()  # Unique read hash
+    
         # Randomly assign this read to between min_ambiguity and max_ambiguity isoforms, maintaining proportions
         num_isoforms_to_assign = random.randint(min_ambiguity, max_ambiguity)
         assigned_isoforms = random.sample(isoform_list, num_isoforms_to_assign)  # Sample from isoform_list, not set
@@ -444,7 +460,7 @@ def generate_read_counts(sample_dict, total_reads, min_ambiguity, max_ambiguity,
             else:
                 isoform_probs[isoform] = 1
                 i+=1
-                print(f"len longer {i}")
+        #print(f"len longer {i}")
 
         # Store the read's isoform probabilities
         read_probabilities[read_hash] = isoform_probs
@@ -489,6 +505,25 @@ def generate_isoform_lengths(isoform_proportion_samples, avg_length=2000, std_de
     return isoform_lengths
 
 
+def Spearman_Pearson_corr_in_thetas(isoform_proportion_samples):
+    
+    # Sample dictionaries of isoform abundances for two samples
+    sample_1 = isoform_proportion_samples.get('day_0').get('sample_1')
+    sample_2 = isoform_proportion_samples.get('day_1').get('sample_1')
+
+    # Extract the isoform names common in both samples
+    common_isoforms = set(sample_1.keys()).intersection(set(sample_2.keys()))
+
+    # Create lists of abundances for these common isoforms
+    abundances_1 = [sample_1[isoform] for isoform in common_isoforms]
+    abundances_2 = [sample_2[isoform] for isoform in common_isoforms]
+
+    # Calculate Spearman and Pearson correlations
+    spearman_corr, _ = spearmanr(abundances_1, abundances_2)
+    pearson_corr, _ = pearsonr(abundances_1, abundances_2)
+
+    return spearman_corr, pearson_corr
+
 # Main function
 def main():
 
@@ -496,55 +531,74 @@ def main():
 
     start = time.time()
 
-    # isoform_number= int(150e3)     # How many isoforms per sample
-    # alpha_initial = 100e3      # Initial alpha summation
-    # num_samples = 2            # Specify the number of samples you want to generate
-    # simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round4'
+    isoform_number= int(150e3)     # How many isoforms per sample
+    alpha_initial = 1.50e6      # Initial alpha summation
+    num_samples = 2            # Specify the number of samples you want to generate
+    day_variations = 2          # how many times do you want to sample theta from the dirichlet
+    simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round11' #(AT)
 
-    # short_total_reads = int(2e7)   # total number of short reads
-    # short_min_ambiguity = int(3)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
-    # short_max_ambiguity = int(10)
-    # short_min_read_length = int(50)     # short read minimum length
-    # short_avg_read_length = int(150)    # average length
-    # short_max_read_length =  int(400)    # maximum length
-
-    # long_total_reads = int(2e6)   # total number of long reads
-    # long_min_ambiguity = int(1)    # long_min_ambiguity, long_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
-    # long_max_ambiguity = int(4)
-    # long_min_read_length = int(1500)     # long read minimum length
-    # long_avg_read_length = int(1800)    # average length
-    # long_max_read_length =  int(2000)    # maximum length
-    
-    ### DUMMY
-    isoform_number= int(15)     # How many isoforms per sample
-    alpha_initial = 10      # Initial alpha summation
-    num_samples = 2             # Specify the number of samples you want to generate
-    simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/trial'
-    
-    short_total_reads = int(2000)   # total number of short reads
-    short_min_ambiguity = int(10)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
-    short_max_ambiguity = int(20)
+    short_total_reads = int(2e7)   # total number of short reads
+    short_min_ambiguity = int(3)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
+    short_max_ambiguity = int(10)
     short_min_read_length = int(50)     # short read minimum length
     short_avg_read_length = int(150)    # average length
     short_max_read_length =  int(400)    # maximum length
 
-    long_total_reads = int(200)   # total number of long reads
+    long_total_reads = int(2e6)   # total number of long reads
     long_min_ambiguity = int(1)    # long_min_ambiguity, long_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
-    long_max_ambiguity = int(6)
+    long_max_ambiguity = int(4)
     long_min_read_length = int(1500)     # long read minimum length
     long_avg_read_length = int(1800)    # average length
     long_max_read_length =  int(2000)    # maximum length
     
+    ## DUMMY
+    # isoform_number= int(15)     # How many isoforms per sample
+    # alpha_initial = 10      # Initial alpha summation
+    # num_samples = 2             # Specify the number of samples you want to generate
+    # day_variations = 2          # how many times do you want to sample theta from the dirichlet (analogous to 2 days, or from 2 persons)
+    # simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round9_small'
+    
+    # short_total_reads = int(2000)   # total number of short reads
+    # short_min_ambiguity = int(10)    # short_min_ambiguity, short_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
+    # short_max_ambiguity = int(20)
+    # short_min_read_length = int(50)     # short read minimum length
+    # short_avg_read_length = int(150)    # average length
+    # short_max_read_length =  int(400)    # maximum length
+
+    # long_total_reads = int(200)   # total number of long reads
+    # long_min_ambiguity = int(1)    # long_min_ambiguity, long_max_ambiguity -> amount of ambiguity eg if the numbers are 3 and 10 that means read would be compatible with at least 3 to max 10 isoforms
+    # long_max_ambiguity = int(6)
+    # long_min_read_length = int(1500)     # long read minimum length
+    # long_avg_read_length = int(1800)    # average length
+    # long_max_read_length =  int(2000)    # maximum length
+
+    # Printing variables
+    print("Isoform Number:", isoform_number)
+    print("Alpha Initial:", alpha_initial)
+    print("Number of Samples:", num_samples)
+    print("Day Variations:", day_variations)
+    print("Simulation Directory:", simulation_dir)
+    print("Short Reads Total:", short_total_reads)
+    print("Short Reads Min Ambiguity:", short_min_ambiguity)
+    print("Short Reads Max Ambiguity:", short_max_ambiguity)
+    print("Short Reads Min Length:", short_min_read_length)
+    print("Short Reads Avg Length:", short_avg_read_length)
+    print("Short Reads Max Length:", short_max_read_length)
+    print("Long Reads Total:", long_total_reads)
+    print("Long Reads Min Ambiguity:", long_min_ambiguity)
+    print("Long Reads Max Ambiguity:", long_max_ambiguity)
+    print("Long Reads Min Length:", long_min_read_length)
+    print("Long Reads Avg Length:", long_avg_read_length)
+    print("Long Reads Max Length:", long_max_read_length)
+    
     element_num = isoform_number 
     desired_corr=0.65
-       
-    read_name = 'SHORT' # (AT)
 
     # Parameters for the Dirichlet distribution
     alpha = assign_alpha(element_num, alpha_initial)
 
     # Step 1: Generate Dirichlet samples
-    proportion_samples = generate_dirichlet_samples(alpha, desired_corr, num_samples)
+    proportion_samples = generate_dirichlet_samples(alpha, desired_corr)
     
     # Step 2: Generate hashed names for each element in the samples
     isoform_proportion_samples = create_sample_hashes(proportion_samples, element_num)
@@ -552,34 +606,38 @@ def main():
     # Generate isoform lengths for all samples (same lengths across samples)
     isoform_lengths = generate_isoform_lengths(isoform_proportion_samples)
 
-    # Generate read counts and assignments for multiple samples
-    corr = generate_read_counts_multiple_samples(isoform_proportion_samples, short_total_reads, isoform_lengths, simulation_dir, 
-        short_min_ambiguity, short_max_ambiguity,  short_min_read_length, short_avg_read_length, short_max_read_length, read_name = 'SHORT')
-    file_path = os.path.join(simulation_dir, f"{read_name}{timestamp}_spCorr_{corr:.2f}_isoformAbundance_groundTruth.pkl")
-    # Save the read_dict as a pickle file
-    with open(file_path, 'wb') as f:
-        pickle.dump(isoform_proportion_samples, f)
-
-
-
-    read_name = 'LONG' # (AT)
-    proportion_samples_new = generate_dirichlet_samples(alpha, desired_corr, num_samples)
+    all_isoform_dict = {}
+    for day in range(day_variations):
+        day_num = f"day_{day}"
+        all_isoform_dict[day_num] = {}
+        if day > 0:
+            proportion_samples_new = generate_dirichlet_samples(alpha, desired_corr)
     
-    # Step 5: Reuse the same isoform names (hashes) and lengths, but with new proportions
-    isoform_proportion_samples_new = {}
-    for sample_name, isoform_proportions in isoform_proportion_samples.items():
-        isoform_proportion_samples_new[sample_name] = {}
-        for idx, hash_name in enumerate(isoform_proportions.keys()):
-            # Assign new proportions to the same hash names (isoform names)
-            isoform_proportion_samples_new[sample_name][hash_name] = proportion_samples_new[int(sample_name[-1])-1][idx]
-    
-    corr_new = generate_read_counts_multiple_samples(isoform_proportion_samples_new, long_total_reads, isoform_lengths, simulation_dir, 
-        long_min_ambiguity, long_max_ambiguity,  long_min_read_length, long_avg_read_length, long_max_read_length, read_name = 'LONG')
-    
-    file_path = os.path.join(simulation_dir, f"{read_name}{timestamp}_spCorr_{corr_new:.2f}_isoformAbundance_groundTruth.pkl")
-    # Save the read_dict as a pickle file
-    with open(file_path, 'wb') as f:
-        pickle.dump(isoform_proportion_samples_new, f)
+            # Step 5: Reuse the same isoform names (hashes) and lengths, but with new proportions
+            isoform_proportion_samples_new = {}
+            for sample_name, isoform_proportions in isoform_proportion_samples.items():
+                isoform_proportion_samples_new[sample_name] = {}
+                for idx, hash_name in enumerate(isoform_proportions.keys()):
+                    # Assign new proportions to the same hash names (isoform names)
+                    isoform_proportion_samples_new[sample_name][hash_name] = proportion_samples_new[int(sample_name[-1])-1][idx]
+            
+            isoform_proportion_samples = isoform_proportion_samples_new
+
+        ## Generate read counts and assignments for multiple samples
+        read_name = 'short' 
+        corr = generate_read_counts_multiple_samples(num_samples, isoform_proportion_samples, short_total_reads, isoform_lengths, simulation_dir, 
+            short_min_ambiguity, short_max_ambiguity,  short_min_read_length, short_avg_read_length, short_max_read_length, day, read_name)
+        read_name = 'long'
+        corr_new = generate_read_counts_multiple_samples(num_samples, isoform_proportion_samples, long_total_reads, isoform_lengths, simulation_dir, 
+            long_min_ambiguity, long_max_ambiguity,  long_min_read_length, long_avg_read_length, long_max_read_length, day, read_name)
+        
+        file_path = os.path.join(simulation_dir, f"SRspCorr_{corr:.2f}_LRspCorr_{corr_new:.2f}_day_{day}_isoformAbundance_groundTruth.pkl")
+        # Save the read_dict as a pickle file
+        with open(file_path, 'wb') as f:
+            pickle.dump(isoform_proportion_samples, f)
+        all_isoform_dict[day_num] = isoform_proportion_samples
+    spearman_corr, pearson_corr = Spearman_Pearson_corr_in_thetas(all_isoform_dict)
+    print(f"Alpha_initial_sum {alpha_initial}\nSpearman_corr {spearman_corr}\nPearson_corr {pearson_corr}")
 
     end = time.time()
     interval = (end-start)/60

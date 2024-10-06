@@ -17,7 +17,8 @@ def plot_GDloss_stats(final_result_dir, main_dir, experiment_file, fig_generic_n
     figure_dir = os.path.join(main_dir, experiment_file, 'figures')
     os.makedirs(figure_dir, exist_ok=True)
     # Regular expression to extract GDlr, AlphaInitial, and EMround from the filenames
-    file_pattern = re.compile(r'file1_(.*?)_file2_(.*?)_GDlr_(0\.\d+)_AlphaInitial_(\d+(\.\d+)?)_EMround_(\d+)_token_(\d+)_')
+    # file_pattern = re.compile(r'file1_(.*?)_file2_(.*?)_GDlr_(0\.\d+)_AlphaInitial_(\d+(\.\d+)?)_EMround_(\d+)_token_(\d+)_')
+    file_pattern = re.compile(r'file1_(.*?)_GDlr_(0\.\d+)_AlphaInitial_(\d+(\.\d+)?)_EMround_(\d+)_token_(\d+)_')
 
     for file in emstat_files:
         file_path = os.path.join(final_result_dir, file)
@@ -27,7 +28,9 @@ def plot_GDloss_stats(final_result_dir, main_dir, experiment_file, fig_generic_n
         # Extract GDlr, AlphaInitial, and EMround from filename
         match = file_pattern.search(file.name)
         if match:
-            filename1, filename2, GDlr, AlphaInitial, _, EMround, token = match.groups()  # Extract the desired groups
+            # filename1, filename2, GDlr, AlphaInitial, _, EMround, token = match.groups()  # Extract the desired groups (AT)
+            filename2 = 'NA'
+            filename1, GDlr, AlphaInitial, _, EMround, token = match.groups()  # Extract the desired groups
         else:
             print(f"Could not extract metadata from file name: {file}")
             continue
@@ -76,7 +79,8 @@ def plot_result_stats(final_result_dir, main_dir, experiment_file, columns_to_pl
     figure_dir = os.path.join(main_dir, experiment_file, 'figures')
     os.makedirs(figure_dir, exist_ok=True)
     # Regular expression to extract GDlr, AlphaInitial, and EMround from the filenames
-    file_pattern = re.compile(r'file1_(.*?)_file2_(.*?)_GDlr_(0\.\d+)_AlphaInitial_(\d+(\.\d+)?)_EMround_(\d+)_token_(\d+)_')
+    # file_pattern = re.compile(r'file1_(.*?)_file2_(.*?)_GDlr_(0\.\d+)_AlphaInitial_(\d+(\.\d+)?)_EMround_(\d+)_token_(\d+)_')
+    file_pattern = re.compile(r'file1_(.*?)_GDlr_(0\.\d+)_AlphaInitial_(\d+(\.\d+)?)_EMround_(\d+)_token_(\d+)_')
 
 
     # Step 3: Load all files, extract metadata, and plot specified columns
@@ -86,7 +90,9 @@ def plot_result_stats(final_result_dir, main_dir, experiment_file, columns_to_pl
         # Extract GDlr, AlphaInitial, and EMround from filename
         match = file_pattern.search(file)
         if match:
-            filename1, filename2, GDlr, AlphaInitial, _, EMround, token = match.groups()  # Extract the desired groups
+            #filename1, filename2, GDlr, AlphaInitial, _, EMround, token = match.groups()  # Extract the desired groups (AT)
+            filename2 = 'NA'
+            filename1, GDlr, AlphaInitial, _, EMround, token = match.groups()  # Extract the desired groups
         else:
             print(f"Could not extract metadata from file name: {file}")
             continue
@@ -162,7 +168,7 @@ def plot_result_stats(final_result_dir, main_dir, experiment_file, columns_to_pl
 # Main function to run the entire process
 def main():
     # Folder containing the files
-    experiment_file = 'exprmnt_2024_09_11__10_55_34'
+    experiment_file = 'exprmnt_2024_10_03__14_40_03'
     main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/'
     columns_to_plot = ['ELBO_sample_1', 'ELBO_sample_2', 'Convergence_sample_1', 'Convergence_sample_2',
                         'EM_convergence', 'Spearman_corr_theta1_theta2',

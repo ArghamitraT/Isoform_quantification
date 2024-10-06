@@ -9,13 +9,13 @@ class DirichletModel:
     def __init__(self, all_alpha, GD_lr, process='expectation_log_theta'):
     
         
-        # Convert the dictionaries to tensors
+        ## onvert the dictionaries to tensors
         self.isoforms = list(all_alpha.keys())
         self.process = process
         self.alpha = torch.tensor(([all_alpha[isoform] for isoform in self.isoforms]), dtype=torch.float32)
         self.GD_lr = GD_lr
         self.log_alpha = torch.tensor(np.log([all_alpha[isoform] for isoform in self.isoforms]), dtype=torch.float32, requires_grad=True)
-
+        
         # Optimizer
         self.optimizer = optim.Adam([self.log_alpha], lr=self.GD_lr)
 

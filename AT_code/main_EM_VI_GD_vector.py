@@ -1,4 +1,4 @@
-from EM_VI_GD_simulation import Expec_Max
+from EM_VI_GD_vector import Expec_Max
 import os
 import argparse
 
@@ -25,6 +25,7 @@ def create_load_file_path():
         if file.startswith(file_name) and file.endswith('.pkl'):
             file_list.append(os.path.join(default_load_filepath, file))
     
+    # (AT)
     #file_list = ['/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmnt_2024_08_10__02_05_36/weights/allWeights_file1_ds2num1aln02long_file2_ds100num1aln02short_GDlr_0.01_AlphaInitial_10000.0_EMround_25_token_29675364_2024_8_10_02_24_57.pkl']
  
     if not file_list:
@@ -40,7 +41,7 @@ def create_load_file_path():
 ##main_folder = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/data/'
 
 main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/'
-output_file_default = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_PacIllu_VIGD_00000')
+output_file_default = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/outputTRIAL_PacIllu_VIGD_token_00000')
 
 # Set up argparse to handle command-line arguments (AT) TAKE A CLOSE LOOK AT THE DEFAULT VALUES
 parser = argparse.ArgumentParser(description="Process BAM files and output results.")
@@ -50,7 +51,7 @@ parser.add_argument("--sample1", type=str, default='ds_5_aln_02_long.bam', help=
 parser.add_argument("--sample2", type=str, default='aln_01_short.bam', help="Sample2 (SR) file name.")
 parser.add_argument("--GD_lr", type=float, default=0.01, help="Learning rate for dirichlet gradient descent.")
 parser.add_argument("--alpha_initial", type=float, default=10000, help="The fixed sum value of alpha")
-parser.add_argument("--max_em_rounds", type=int, default=1, help="The maximum EM iterations")
+parser.add_argument("--max_em_rounds", type=int, default=2, help="The maximum EM iterations")
 parser.add_argument("--load", type=int, default=0, help="0 or 1 If load is 1, we will load the old weights and resume training") ## (AT)
 parser.add_argument("--load_filename", type=str, default='generic', help="if load==1 (the model needs to resumed training), need a path to load the weights")
 
@@ -69,25 +70,22 @@ load_filename = args.load_filename
 
 
 ## (AT) SIRV
-# main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/SIRV/'
-# sample1 = main_folder + 'aln_E0.bam'
-# sample2 = main_folder + 'aln_E2.bam'
-# output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_SIRV_VIGD_token_00000')
+main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/SIRV/'
+# sample1 = main_folder + 'aln_E0_short.bam'
+# sample2 = main_folder + 'aln_E2_short.bam'
+sample1 = main_folder + 'aln_E0.bam'
+sample2 = main_folder + 'aln_E2.bam'
+# output_file = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmntSingleRun_2024_00_00__00_00_00/output_SIRV_VIGD_token_000000'
 # sample1 = main_folder + 'ds_2_num1_aln_02_long.bam'
 # sample2 = main_folder + 'ds_100_num1_aln_02_short.bam'
-# output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_PacIllu_VIGD_token_00000')
-# main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round4/'
-# sample1 = 'SHORT_2024_09_11__00_25_31_sample_1' 
-# sample2 = 'LONG_2024_09_11__00_25_31_sample_1'
-# # sample1 = 'ds_100_num1_aln_01_short' 
-# # sample2 = 'ds_10_num1_aln_01_long'
-# output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_simulation_VIGD_token_00000')
-
+# output_file = os.path.join(os.getcwd(), '../../files/results/exprmnt_2024_08_28__01_31_50/files/outputTRIAL_PacIllu_VIGD_token_000000')
+# main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/'
+# sample1 = main_folder + 'ds_100_num1_aln_01_short.bam'
+# sample2 = main_folder + 'ds_5_num1_aln_51_long.bam'
 
 # Print all the parameters
 last_EM_round = 25
 file_names_list = [sample1, sample2] ## (AT)
-# file_names_list = [sample1] ## (AT)
 print("Output_file_path", output_file)
 print("GD_lr", GD_lr)
 print("alpha_initial", alpha_initial)
@@ -113,6 +111,9 @@ print("#########END###########")#
 
 
 """
-/gpfs/commons/home/atalukder/miniconda3/envs/NanoCount_5/bin/python /gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/main_EM_VI_GD_simulation.py > /gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmntSingleRun_2024_00_00__0
-0_00_00/files/output_files/out_SIMULATION_000000__2024_07_13__22_52_00.txt 2>&1
+/gpfs/commons/home/atalukder/miniconda3/envs/NanoCount_5/bin/python /gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/main_EM_VI_GD.py > /gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmntSingleRun_2024_00_00__00_00_00/files/out_main_000000__2024_07_13__22_52_00.txt 2>&1
+
+"""
+"""
+git DirichletOptimizer.py EM_VI_GD.py find_theta_corr.py main_EM_VI_GD.py main_EM_VI_GD_simulation.py plt_experiment_stats.py simulation.py try2.py corrWGroundTruth.py find_theta_alphaInitial_relation.py vector_main.py vector_version.py 
 """
