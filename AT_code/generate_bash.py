@@ -22,7 +22,7 @@ def create_job_dir(dir="", fold_name = ""):
 #job_path = create_job_dir(fold_name="job")
 
 ### it calls the .py file
-def create_prg_file(python_file_path, prg_file_path, output_file_path, input_file_names, alpha_initial, GD_lr, EM_round, load_filename, load):
+def create_prg_file(python_file_path, prg_file_path, output_file_path, input_file_names, alpha_initial, GD_lr, EM_round, load_filename, load, experiment_num):
    
     # header = f"#!/bin/bash\n" + \
     # "module purge\n" + \
@@ -30,18 +30,22 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
     # "source activate xmodality2\n" + \
     # f"python {python_file_path} --stp_sz {l0} --l1 {l1} --GATlayer {l2} --dropout {l3} --weight_dir {weight_dir}  --epoch 450 --resume 1 --batch_size 2 --data_prlal 1"
 
-    header = f"#!/bin/bash\n" + \
-    "set -e\n" + \
-    "cd $HOME\n" + \
-    "source ~/.bashrc\n" + \
-    "conda activate NanoCount_5\n" + \
-    f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename}"
-    
-    # (AT)
-    # f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename}"
-    
-    # f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename}"
+    if experiment_num == 5:
+        header = f"#!/bin/bash\n" + \
+        "set -e\n" + \
+        "cd $HOME\n" + \
+        "source ~/.bashrc\n" + \
+        "conda activate NanoCount_5\n" + \
+        f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num}"
 
+    else:
+        header = f"#!/bin/bash\n" + \
+        "set -e\n" + \
+        "cd $HOME\n" + \
+        "source ~/.bashrc\n" + \
+        "conda activate NanoCount_5\n" + \
+        f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num}"
+    
     with open(prg_file_path, "w") as f:
         f.write(header)
     return prg_file_path
@@ -59,8 +63,8 @@ def create_slurm_file(prg_file_path, job_name, slurm_file_path):
     "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
     "##NECESSARY JOB SPECIFICATIONS\n" + \
     f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
-    "#SBATCH --time=30:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
-    "#SBATCH --mem=256G              \n" + \
+    "#SBATCH --time=35:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
+    "#SBATCH --mem=300G              \n" + \
     "#SBATCH --cpus-per-task=8                   \n" + \
     "#SBATCH --mail-type=END,FAIL    \n" + \
     f"#SBATCH --output={output_dir}/out_{job_name}.%j      #Send stdout/err to\n" + \
@@ -116,42 +120,49 @@ output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 #                       ['ds_10_num1_aln_11_long', 'ds_100_num1_aln_11_short'],
 #                       ['ds_10_num1_aln_12_long', 'ds_100_num1_aln_12_short']]
 
-# # EXP 5
+# EXP 5
 # samples_file_names = [[['ds_10_num1_aln_01_long','ds_100_num1_aln_01_short'], ['ds_10_num1_aln_11_long','ds_100_num1_aln_11_short']], 
 #                       [['ds_10_num1_aln_02_long','ds_100_num1_aln_02_short'], ['ds_10_num1_aln_12_long','ds_100_num1_aln_12_short']]]
 
-## EXP 1
-samples_file_names = [['ds_10_num1_aln_01_long', 'NA'], 
-                      ['ds_10_num1_aln_02_long', 'NA'],
-                      ['ds_10_num1_aln_11_long', 'NA'],
-                      ['ds_10_num1_aln_12_long', 'NA'],
-                      ['ds_100_num1_aln_01_short', 'NA'], 
-                      ['ds_100_num1_aln_02_short', 'NA'],
-                      ['ds_100_num1_aln_11_short', 'NA'],
-                      ['ds_100_num1_aln_12_short', 'NA']]
+# ## EXP 1
+# samples_file_names = [['ds_10_num1_aln_01_long', 'NA'], 
+#                       ['ds_10_num1_aln_02_long', 'NA'],
+#                       ['ds_10_num1_aln_11_long', 'NA'],
+#                       ['ds_10_num1_aln_12_long', 'NA'],
+#                       ['ds_100_num1_aln_01_short', 'NA'], 
+#                       ['ds_100_num1_aln_02_short', 'NA'],
+#                       ['ds_100_num1_aln_11_short', 'NA'],
+#                       ['ds_100_num1_aln_12_short', 'NA']]
+
+## EXP 4 (part II)
+# samples_file_names = [['ds_100_num1_aln_11_short', 'ds_100_num1_aln_01_short'], 
+#                       ['ds_100_num1_aln_12_short', 'ds_100_num1_aln_02_short']]
+
+samples_file_names = [['ds_10_num1_aln_11_long', 'ds_100_num1_aln_01_short']]
+
 
 
 """ **CHANGE (AT)** THE DIRECTORY NAME FROM WHERE WEIGHTS NEEDS TO BE COPIED INTO ./WEIGHTS FOLDER(THE UNIVERSAL WEIGHT FOLDER)"""
-# other_script_names = ['EM_VI_GD.py', 'DirichletOptimizer.py']
-#other_script_names = ['EM_VI_GD_together.py', 'DirichletOptimizer.py']
-other_script_names = ['EM_VI_GD_simulation.py', 'DirichletOptimizer.py']
+other_script_names = ['EM_VI_GD_simulation.py', 'DirichletOptimizer_vector.py', 'generate_bash.py']
+name_arr = ['main_EM_VI_GD_simulation.py']
+
 output_file_name = "output_Simulation_VIGD_token_"
 from_where_to_copy = "exprmnt_2024_08_10__02_05_36"
 last_EM_round = 25
 copy_needed = 0 #(AT)
-# name_arr = ['main_EM_VI_GD_together.py']
-# name_arr = ['main_EM_VI_GD.py']
-name_arr = ['main_EM_VI_GD_simulation.py']
-alpha_val_arr = [10000]
+
+alpha_val_arr = [1e2,1e5]
 GDlr_val_arr = [0.01]
-EM_round_arr = [25] 
+EM_round_arr = [100] 
+experiment_num = 4
+
 
 def create_readme():
     name = os.path.join(data_dir, "readme")
     readme = open(name, "a")
 
     """ **CHANGE (AT)** WRITE THE COMMENT"""
-    comment = f"New simulation: EXPERIMENT 1, WITHOUT gradient descent. details here: https://docs.google.com/document/d/1EP49BPa4FgvuKZONl_4kR-vkayI9Qfs_dJ1-POQKPRA/edit#heading=h.pt6yskkpncc3"
+    comment = f"Experiment:4, running for 300 itr to see if alpha converges WITH built-in dirichlet; simulation, dirichlet liklihood formula considers constant term as much as the number of samples, for dirichlet theta we are taking log exp theta."
     readme.write(comment)
     readme.close()
 
@@ -222,7 +233,8 @@ def gen_combination():
                                         GD_lr= GDlr_val,
                                         EM_round = EM_round, 
                                         load_filename=load_filename, 
-                                        load=copy_needed)
+                                        load=copy_needed,
+                                        experiment_num=experiment_num)
                         
                         
                         create_slurm_file(prg_file_path=prg_file_path, 

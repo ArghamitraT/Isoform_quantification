@@ -82,5 +82,5 @@ class DirichletModel:
         elif self.process == 'log_expectation_theta':
             term3 = torch.sum((alpha - 1) * torch.log(data), dim=1)
         
-        return term1 - term2 + term3.mean()
+        return term1 - term2 + term3.sum()
 

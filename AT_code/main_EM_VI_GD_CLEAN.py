@@ -1,5 +1,4 @@
-from EM_VI_GD_vector import Expec_Max
-#from save_data import Expec_Max
+from EM_VI_GD_CLEAN import Expec_Max
 import os
 import argparse
 

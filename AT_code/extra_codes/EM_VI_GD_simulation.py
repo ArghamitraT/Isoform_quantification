@@ -56,7 +56,7 @@ class Expec_Max:
             alpha_initial: float = 1, 
             GD_lr: float = 0.01,
             process: str ='log_expectation_theta', #(AT) 'expectation_log_theta' or 'log_expectation_theta'
-            dirichlet_builtin: int = 1, 
+            dirichlet_builtin: int = 1,  #(AT) if we want to use built-in dirichlet
             load: int = 0,
             load_filename: str = "",
             experiment_num: int = 4
@@ -149,7 +149,6 @@ class Expec_Max:
         self.experiment_num = experiment_num
         self.dirichlet_builtin=dirichlet_builtin
 
-
         print("Initialise Nanocount")
         print("Parse Bam file and filter low quality alignments")
         
@@ -162,10 +161,13 @@ class Expec_Max:
         else:
             self.initialize_model()
         
-        
+        # comment
+        end1 = time.time()
+        interval = (end1-start1)/60
+        print(f"time_initialize {interval} min")
         start1 = time.time() # comment
         
-        ## Initialize the Dirichlet optimizer with the theta data
+        # # Initialize the Dirichlet optimizer with the theta data
         dirichlet_optimizer = DirichletModel(self.all_alpha, self.GD_lr, self.dirichlet_builtin, self.process)
         
         # comment
@@ -177,7 +179,7 @@ class Expec_Max:
         # filename for saving variables
         token = (self.count_file.split('/')[-1]).split('_')[-1]
         model_save_path = '/'.join(self.count_file.split('/')[:-3])+'/weights/'
-        
+
         if self.experiment_num == 5:
             saved_state_filename = self.create_saved_state_filename_exp5(result="allWeights")
             final_save_path = self.create_image_name(model_save_path+saved_state_filename+'_token_'+token, format=".pkl")
@@ -192,6 +194,7 @@ class Expec_Max:
             final_EMstat_path = self.create_image_name(model_save_path+saved_EMstat_filename+'_token_'+token, format=".csv")
             saved_GDloss_filename = self.create_saved_state_filename(result="allGDloss")
             final_GDloss_path = self.create_image_name(model_save_path+saved_GDloss_filename+'_token_'+token, format=".pkl")
+
 
         # Initialize an empty DataFrame to store the stats
         stats_df = pd.DataFrame(columns=[
@@ -226,7 +229,7 @@ class Expec_Max:
 
             # EM
             sample_num = 0
-            for sample_key in self.all_read_dicts:
+            for sample_key in self.all_Yri:
                 self.all_alpha_prime[sample_key] = self.update_alpha_prime(sample_key)
                 self.expectation_log_theta[sample_key] = self.calculate_expectation_log_theta_m(sample_key)
                 self.all_Phi_ri[sample_key] = self.update_Phi_ri(sample_key)
@@ -309,13 +312,6 @@ class Expec_Max:
                 })
                 # Append the loss history of the current iteration to the loss history DataFrame
                 GDloss_history_df = pd.concat([GDloss_history_df, GDloss_history_current], ignore_index=True)
-                
-                # Check if the directory exists
-                dir_path = os.path.dirname(final_GDloss_path)
-                if not os.path.exists(dir_path):
-                    os.makedirs(dir_path)
-                    
-
                 with open(final_GDloss_path, 'wb') as f:
                     pickle.dump(GDloss_history_df, f)
 
@@ -351,7 +347,7 @@ class Expec_Max:
 
             print("Compute estimated counts and TPM")
             # Adjusted to use the length of read_dict for the current sample
-            count_df["est_count"] = count_df["raw"] * len(self.all_read_dicts[sample])
+            count_df["est_count"] = count_df["raw"] * len(self.all_Yri[sample])
             count_df["tpm"] = count_df["raw"] * 1000000 / sum(theta_dict.values())
 
             # Add extra transcript info if required
@@ -369,16 +365,11 @@ class Expec_Max:
             else:
                 file_name = self.create_saved_state_filename(result=self.count_file + '_' + sample)
 
-            
             file_name_timestamp = self.create_image_name(file_name, format="")
             count_file = f"{file_name_timestamp}.tsv" if self.count_file else None
 
             if count_file:
                 print(f"Write file for {sample}")
-                
-                dir_path = os.path.dirname(count_file)
-                if not os.path.exists(dir_path):
-                    os.makedirs(dir_path)
                 count_df.to_csv(count_file, sep="\t")
             
         end = time.time()
@@ -562,7 +553,32 @@ class Expec_Max:
         Returns:
         float: The ELBO value.
         """
-       
+        # # Extract necessary variables
+        # Phi_nm = self.all_Phi_ri[sample_key]
+        # Pnm = self.all_read_iso_prob[sample_key]
+        # alpha_prime = self.all_alpha_prime[sample_key]
+        # expectation_log_theta = self.expectation_log_theta[sample_key]
+
+        # # Initialize ELBO components
+        # elbo = 0.0
+
+        # # Calculate the first component: \sum_{n=1}^{N} \sum_{m=1}^{M} \phi_{nm} \left( \log \frac{p_{nm}}{\phi_{nm}} + \psi(\alpha_m) - \psi\left(\sum_{m=1}^{M} \alpha_m'\right) \right)
+        # sum_alpha_prime = sum(alpha_prime.values())
+        # # Define a small value
+        # epsilon = 1e-10
+
+        # for n, phi_n in Phi_nm.items():
+        #     for m, phi_nm in phi_n.items():
+        #         p_nm = Pnm[n][m]
+        #         phi_nm_adjusted = phi_nm if phi_nm != 0 else epsilon # Adjust phi_nm to avoid zero values
+        #         try:
+        #             elbo += phi_nm * (np.log(p_nm / phi_nm_adjusted) + expectation_log_theta[m])
+        #         except Exception as e:
+        #             print(f"Exception encountered: {e} for isoform {m} and read {n}")
+        #         if np.isnan(elbo):
+        #             raise ValueError(f"NaN encountered in first component for isoform {m} and read {n}")
+
+         ## Extract the necessary data
         # Extract necessary data
         Phi_nm = self.all_Phi_ri[sample_key]  # 2D array of size (num_reads, num_isoforms)
         Pnm = self.all_read_iso_prob[sample_key]  # 2D array of size (num_reads, num_isoforms)
@@ -599,7 +615,6 @@ class Expec_Max:
         
         #### Calculate the second component:   ####
         # \log \frac{\Gamma(\sum_{m=1}^{M} \alpha_m)}{\Gamma(\sum_{m=1}^{M} \alpha_m')}
-
         alpha_prime = self.all_alpha_prime[sample_key]  # Dictionary of alpha prime values
         unique = self.all_unique_isoforms  # Array of isoform names for `alpha`
         alpha_values = self.all_alpha  # Array of alpha values corresponding to `unique`
@@ -617,6 +632,12 @@ class Expec_Max:
         elbo += log_gamma_sum_alpha - log_gamma_sum_alpha_prime
     
 
+        # alpha = {k: self.all_alpha[k] for k in alpha_prime.keys()}
+        # sum_alpha = sum(alpha.values())
+        # log_gamma_sum_alpha = gammaln(sum_alpha)
+        # log_gamma_sum_alpha_prime = gammaln(sum_alpha_prime)
+        # elbo += log_gamma_sum_alpha - log_gamma_sum_alpha_prime
+
         ### Calculate the third component: ###
         # \sum_{m=1}^{M} \log \frac{\Gamma(\alpha_m')}{\Gamma(\alpha_m)}
         # Step 3: Calculate gammaln for both alpha_prime and alpha
@@ -625,20 +646,25 @@ class Expec_Max:
         # Step 4: Compute the ELBO contribution
         elbo += np.sum(log_gamma_alpha_prime - log_gamma_alpha)
 
+        
+        # for isoform in alpha_prime.keys():
+        #     log_gamma_alpha_prime_m = gammaln(alpha_prime[isoform])
+        #     log_gamma_alpha_m = gammaln(alpha[isoform])
+        #     elbo += log_gamma_alpha_prime_m - log_gamma_alpha_m
 
         ### Calculate the fourth component: ###
         # \sum_{m=1}^{M} (\alpha_m - \alpha_m') \left( \expectation_log_theta[isoform] \right)
         differences = selected_alpha_values - alpha_prime
         elbo += np.sum(differences * expectation_log_theta_m)
 
+        
+        # for isoform in alpha_prime.keys():
+        #     elbo += (alpha[isoform] - alpha_prime[isoform]) * expectation_log_theta[isoform]
+
         return elbo
 
 
     def update_alpha_prime(self, sample_idx):
-
-        """
-        Implements following equation: \alpha_m' = \alpha_m + \sum_n \phi_{nm}
-        """
         
         # Extract current alpha, theta, and other sample-specific values
         all_alpha = self.all_alpha
@@ -783,19 +809,6 @@ class Expec_Max:
         # Step 6: Return the alpha values
         return alpha_scaled
     
-    def assign_alpha_constant(self):
-        # Step 1: Use `self.all_unique_isoforms` directly
-        unique_isoforms = self.all_unique_isoforms
-
-        # Step 2: Number of unique isoforms
-        n = len(unique_isoforms)
-
-        # Step 5: Scale the resulting values to have the desired fixed sum
-        alpha_scaled = np.full(n, 3)
-
-        # Step 6: Return the alpha values
-        return alpha_scaled
-    
 
     def calculate_theta_and_alpha_prime_0(self, all_rnames, compatibility_list):
         """
@@ -807,12 +820,14 @@ class Expec_Max:
         # Calculate total abundance scores for each unique reference name
         abundance_scores = np.zeros(len(unique_refs))
         abundance_scores = abundance_scores.astype(float)
-
         np.add.at(abundance_scores, inverse_indices, compatibility_list)
 
         # Normalize the abundance scores
         total_score = np.sum(abundance_scores)
         normalized_abundances = abundance_scores / total_score
+
+        # Create a dictionary to map reference names to their abundance scores
+        # abundance_dict = dict(zip(unique_refs, normalized_abundances))
 
         return unique_refs, normalized_abundances
 
@@ -957,9 +972,14 @@ class Expec_Max:
     
         # Create a mapping of reference names to indices for quick lookup
         ref_len_dict_keys = np.array(list(ref_len_dict.keys()))
-        
+        # ref_lengths = np.array([ref_len_dict[key] for key in ref_len_dict_keys])
+        # ref_name_to_index = {name: idx for idx, name in enumerate(ref_len_dict_keys)}
+
         ref_lengths = np.fromiter((ref_len_dict[key] for key in ref_len_dict_keys), dtype=float)
         ref_name_to_index = dict(zip(ref_len_dict_keys, np.arange(len(ref_len_dict_keys))))
+
+
+
 
         all_read_names = []
         all_alignments = []
@@ -994,6 +1014,7 @@ class Expec_Max:
         all_alignment_lens = all_alignment_lens[sort_indices]
 
         # Find the indices of reference names in ref_len_dict_keys
+        # ref_indices = np.array([ref_name_to_index[rname] for rname in all_rnames])
         ref_indices = np.vectorize(ref_name_to_index.get)(all_rnames)
         ref_lengths_for_alignments = ref_lengths[ref_indices]
 
@@ -1009,31 +1030,243 @@ class Expec_Max:
         problematic_indices = np.isnan(p_nm) | (p_nm < 0)
         p_nm[problematic_indices] = 1  # Replace problematic probabilities with 1
         
+        # read_len_dispro = np.sum(problematic_indices)
+        # print(f"total_read_len_longer_than_reflen {read_len_dispro}")
+
         return all_read_names, all_rnames, compatibility_list, p_nm
     
+    def convert_Yri_to_arrays(self, sample_key):
+        """
+        Converts the default dictionary self.all_Yri[sample_key] into arrays for vectorized processing,
+        and extracts the corresponding p_nm values from self.all_read_iso_prob[sample_key].
+        """
+        # Extract the compatibility dictionary and probability dictionary for the given sample
+        compatibility_dict = self.all_Yri[sample_key]
+        probability_dict = self.all_read_iso_prob[sample_key]
+
+        # Initialize lists to collect data
+        all_read_names = []
+        all_rnames = []
+        compatibility_list = []
+        p_nm_list = []
+
+        # Extract data from the compatibility dictionary
+        for read_name, isoforms in compatibility_dict.items():
+            for isoform_name, score in isoforms.items():
+                all_read_names.append(read_name)
+                all_rnames.append(isoform_name)
+                compatibility_list.append(score)
+
+                # Retrieve p_nm from `self.all_read_iso_prob`
+                p_nm_value = probability_dict[read_name].get(isoform_name, 0)  # Default to 0 if not found
+                p_nm_list.append(p_nm_value)
+
+        # Convert lists to numpy arrays for vectorized processing
+        all_read_names = np.array(all_read_names)
+        all_rnames = np.array(all_rnames)
+        compatibility_list = np.array(compatibility_list)
+        p_nm_array = np.array(p_nm_list)
+
+        return all_read_names, all_rnames, compatibility_list, p_nm_array
+    # def get_compatibility_modified(self, sample_key):
+
+    #     """
+    #     For every read, this function provides the compatible isoforms and normalizes them by N-K+1, returning vectors.
+    #     """
+    #     """ EXPLANATION:
+    #     * read_dict -> "Binary Compatibility Matrix: Y_{ri}
+    #     * ref_len_dict -> length of the isoforms """
+       
+    #     start = time.time()
+
+    #     read_dict = self.all_read_dicts[sample_key]
+    #     ref_len_dict = self.all_ref_len_dicts[sample_key]
+
+    #     # Pre-fetch reference lengths and names
+    #     ref_len_dict_keys = np.array(list(ref_len_dict.keys()))
+    #     ref_lengths = np.array([ref_len_dict[key] for key in ref_len_dict_keys])
+
+    #     compatibility_list = []
+    #     read_names = []
+    #     rnames = []
+    #     read_isoform_probs = []
+
+    #     read_len_dispro = 0
+
+    #     # Process each read
+    #     all_read_names = []
+    #     all_alignments = []
+    #     all_alignment_lens = []
+    #     all_rnames = []
+
+    #     # Collect all data into lists for vectorized processing
+    #     for read_name, read in read_dict.items():
+    #         if not self.is_iterable(read):
+    #             read = [read]  # Wrap non-iterable read in a list
+
+    #         for alignment in read:
+    #             alignments = alignment.alignment_list
+    #             alignment_lens = np.array([string.align_len for string in alignments])
+    #             rnames = [string.rname for string in alignments]
+
+    #             # Collect the read name and alignment details for each alignment
+    #             all_read_names.extend([read_name] * len(alignments))
+    #             all_alignments.extend(alignments)
+    #             all_alignment_lens.extend(alignment_lens)
+    #             all_rnames.extend(rnames)
+
+    #     # Convert all collected data into numpy arrays for vectorized processing
+    #     all_alignment_lens = np.array(all_alignment_lens)
+    #     all_rnames = np.array(all_rnames)
+    #     all_read_names = np.array(all_read_names)
+
+    #     # Find the indices of reference names in ref_len_dict_keys
+    #     ref_indices = np.searchsorted(ref_len_dict_keys, all_rnames)
+    #     ref_lengths_for_alignments = ref_lengths[ref_indices]
+
+    #     # Vectorized compatibility scores
+    #     unique_read_names, counts = np.unique(all_read_names, return_counts=True)
+    #     compatibility_list = np.repeat(1 / counts, counts)  # Compatibility score is the inverse of the count of alignments for each read
+
+    #     # Vectorized probability calculation
+    #     denominators = ref_lengths_for_alignments - all_alignment_lens + 1
+    #     p_nm = np.where(denominators <= 0, np.nan, 1 / denominators)
+
+    #     # Determine where probabilities need adjustment
+    #     problematic_indices = np.isnan(p_nm) | (p_nm < 0)
+    #     p_nm[problematic_indices] = 1  # Replace problematic probabilities with 1
+    #     read_len_dispro += np.sum(problematic_indices)
+
+    #     print(f"total_read_len_longer_than_reflen {read_len_dispro}")
+
+    #     end = time.time()
+    #     # print(f"get_compatibility_modified_time {end-start}s ")
+
+    #     return all_read_names, all_rnames, compatibility_list, p_nm
+
 
     def initialize_model(self):
         start = time.time()
         
-        for index, file_name in enumerate(self.file_names_list, start=1):
-            print(f"sample_{index} {file_name}")
-            
-            pkl_file_name = file_name+'_read_dicts.pkl'
-            with open(pkl_file_name, 'rb') as file:
-                read_dict = pickle.load(file)
-                print(f"opened {pkl_file_name}")
-
-            pkl_file_name = file_name+'_ref_len_dicts.pkl'
-            with open(pkl_file_name, 'rb') as file:
-                ref_len_dict = pickle.load(file)
-                print(f"opened {pkl_file_name}")
-
-
-            # Store the dictionaries in the universal dictionary with a sample key
-            sample_key = f'sample{index}'
-            self.all_read_dicts[sample_key] = read_dict
-            self.all_ref_len_dicts[sample_key] = ref_len_dict
+        ##(AT)
+        # simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round9_small/'
+        simulation_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round11/'
         
+        if self.experiment_num == 4 or self.experiment_num == 1:
+            for index, file_name in enumerate(self.file_names_list, start=1):
+                sample_key = f'sample{index}'
+                file_name = file_name.split('/')[-1]
+                
+                dir = os.path.join(simulation_dir, f"{file_name}_read_dict.pkl")
+                with open(dir, 'rb') as file:
+                    self.all_Yri[sample_key] = pickle.load(file)
+                    print(f"loading {dir}")
+                dir = os.path.join(simulation_dir, f"{file_name}_read_iso_prob.pkl")
+                with open(dir, 'rb') as file:
+                    self.all_read_iso_prob[sample_key] = pickle.load(file)
+                    print(f"loading {dir}")
+        
+        elif self.experiment_num == 5:
+            for sample_index, sample_file_name in enumerate(self.file_names_list, start=1):
+                sample_key = f'sample{sample_index}'
+                #file_name = sample_file_name
+                for index, file_name in enumerate(sample_file_name, start=1):
+                    file_name = file_name.split('/')[-1]
+                    if index == 1:
+                        dir = os.path.join(simulation_dir, f"{file_name}_read_dict.pkl")
+                        with open(dir, 'rb') as file:
+                            read_dict_short = pickle.load(file)
+                            print(f"loading {dir}")
+                        dir = os.path.join(simulation_dir, f"{file_name}_read_iso_prob.pkl")
+                        with open(dir, 'rb') as file:
+                            read_iso_prob_short = pickle.load(file)
+                            print(f"loading {dir}")
+                    else:
+                        dir = os.path.join(simulation_dir, f"{file_name}_read_dict.pkl")
+                        with open(dir, 'rb') as file:
+                            read_dict_long = pickle.load(file)
+                            print(f"loading {dir}")
+                        dir = os.path.join(simulation_dir, f"{file_name}_read_iso_prob.pkl")
+                        with open(dir, 'rb') as file:
+                            read_iso_prob_long = pickle.load(file)
+                            print(f"loading {dir}")
+                
+                for key, value in read_dict_short.items():
+                    if key in read_dict_long:
+                        # Assuming you want to merge the nested dictionaries
+                        for sub_key, sub_value in value.items():
+                            if sub_key in read_dict_long[key]:
+                                read_dict_long[key][sub_key] += sub_value  # Assuming values are not dicts but can be added
+                            else:
+                                read_dict_long[key][sub_key] = sub_value
+                    else:
+                        read_dict_long[key] = value
+                # Store the merged dictionary in self.all_read_dicts with the sample key
+                self.all_Yri[sample_key] = read_dict_long
+
+                for key, value in read_iso_prob_short.items():
+                    if key in read_iso_prob_long:
+                        # Assuming you want to merge the nested dictionaries
+                        for sub_key, sub_value in value.items():
+                            if sub_key in read_iso_prob_long[key]:
+                                read_iso_prob_long[key][sub_key] += sub_value  # Assuming values are not dicts but can be added
+                            else:
+                                read_iso_prob_long[key][sub_key] = sub_value
+                    else:
+                        read_iso_prob_long[key] = value
+                # Store the merged dictionary in self.all_read_dicts with the sample key
+                self.all_read_iso_prob[sample_key] = read_iso_prob_long
+
+        elif self.experiment_num == 2:
+            for index, file_name in enumerate(self.file_names_list, start=1):
+                print(f"sample_{index} {file_name}")
+                file_name = file_name.split('/')[-1]
+                if index == 1:
+                    dir = os.path.join(simulation_dir, f"{file_name}_read_dict.pkl")
+                    with open(dir, 'rb') as file:
+                        read_dict_short = pickle.load(file)
+                        print(f"loading {dir}")
+                    dir = os.path.join(simulation_dir, f"{file_name}_read_iso_prob.pkl")
+                    with open(dir, 'rb') as file:
+                        read_iso_prob_short = pickle.load(file)
+                        print(f"loading {dir}")
+                else:
+                    dir = os.path.join(simulation_dir, f"{file_name}_read_dict.pkl")
+                    with open(dir, 'rb') as file:
+                        read_dict_long = pickle.load(file)
+                        print(f"loading {dir}")
+                    dir = os.path.join(simulation_dir, f"{file_name}_read_iso_prob.pkl")
+                    with open(dir, 'rb') as file:
+                        read_iso_prob_long = pickle.load(file)
+                        print(f"loading {dir}")
+            
+
+            for key, value in read_dict_short.items():
+                if key in read_dict_long:
+                    # Assuming you want to merge the nested dictionaries
+                    for sub_key, sub_value in value.items():
+                        if sub_key in read_dict_long[key]:
+                            read_dict_long[key][sub_key] += sub_value  # Assuming values are not dicts but can be added
+                        else:
+                            read_dict_long[key][sub_key] = sub_value
+                else:
+                    read_dict_long[key] = value
+            # Store the merged dictionary in self.all_read_dicts with the sample key
+            self.all_Yri['sample1'] = read_dict_long
+
+            for key, value in read_iso_prob_short.items():
+                if key in read_iso_prob_long:
+                    # Assuming you want to merge the nested dictionaries
+                    for sub_key, sub_value in value.items():
+                        if sub_key in read_iso_prob_long[key]:
+                            read_iso_prob_long[key][sub_key] += sub_value  # Assuming values are not dicts but can be added
+                        else:
+                            read_iso_prob_long[key][sub_key] = sub_value
+                else:
+                    read_iso_prob_long[key] = value
+            # Store the merged dictionary in self.all_read_dicts with the sample key
+            self.all_read_iso_prob['sample1'] = read_iso_prob_long
+
         end = time.time()
         interval = (end-start)/60
         print(f"time_parse {interval} min")
@@ -1053,14 +1286,15 @@ class Expec_Max:
             * n --> # of reads for each isoform
         """
 
-        
+        # self.all_Yri_list = []
+        # self.all_Phi_ri_list = []
+        # self.all_theta_list = []
         all_unique_isoforms_set = set()
 
-        start1 = time.time() # comment
-        
         # All the initial calculation
-        for sample_key in self.all_read_dicts:
-            all_read_names, all_rnames, compatibility_list, p_nm = self.get_compatibility_modified(sample_key)
+        for sample_key in self.all_Yri:
+            all_read_names, all_rnames, compatibility_list, p_nm = self.convert_Yri_to_arrays(sample_key)
+            # all_read_names, all_rnames, compatibility_list, p_nm = self.get_compatibility_modified(sample_key)
             self.all_Yri[sample_key], self.all_read_iso_prob[sample_key] = compatibility_list, p_nm
             self.all_rnames[sample_key], self.all_readName[sample_key] = all_rnames, all_read_names
 
@@ -1070,6 +1304,7 @@ class Expec_Max:
             # Update the set of unique isoforms
             all_unique_isoforms_set.update(unique_refs)
 
+            
             demo_phi = self.calculate_Z(all_read_names, all_rnames, compatibility_list, p_nm, all_theta)
             self.all_Phi_ri[sample_key] = demo_phi
 
@@ -1077,23 +1312,22 @@ class Expec_Max:
         all_unique_isoforms_set = sorted(all_unique_isoforms_set)
         self.all_unique_isoforms = np.array(list(all_unique_isoforms_set))
 
-        # self.all_alpha = self.assign_alpha_constant()
         self.all_alpha = self.assign_alpha()
-
-        # comment
-        end1 = time.time()
-        interval = (end1-start1)/60
-        print(f"time_initialize {interval} min")
 
         # COMMENT
         print("Initiation")
 
-        
+        # find out the reads mathced to more than 1 isoform
+        # more_than_one = {key: val for key, val in compatibility_dict_long.items() if len(val) > 1}
+
         # EM loop to calculate abundance and update read-transcript compatibility
         print("Start EM abundance estimate")
 
         self.em_round = 0
         self.convergence = 1
+
+        # Initialize the Dirichlet optimizer with the theta data
+        #self.dirichlet_optimizer = DirichletModel(self.all_alpha, self.GD_lr, self.process)
 
     # ~~~~~~~~~~~~~~PRIVATE METHODS~~~~~~~~~~~~~~ #
 
@@ -1279,44 +1513,3 @@ class Expec_Max:
         # If any error return empty DataFrame silently
         except Exception:
             return pd.DataFrame()
-        
-
-
-"""
-
-        # Loop over all file names provided and parses the reads with
-        # for index, file_name in enumerate(self.file_names_list, start=1):
-        #     print(f"sample_{index} {file_name}")
-        #     # Parse the BAM file
-        #     read_dict, ref_len_dict = self._parse_bam(file_name=file_name)
-
-
-        #     # Check if the read_dict file already exists
-        #     
-        #     main_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln_pklfiles'
-        #     pkl_file_name_read_dict = file_name.split('/')[-1].split('.')[0] + '_read_dicts.pkl'
-        #     pkl_file_name_ref_len_dict = file_name.split('/')[-1].split('.')[0] + '_ref_len_dicts.pkl'
-
-        #     read_dict_path = os.path.join(main_dir, pkl_file_name_read_dict)
-        #     if not os.path.exists(read_dict_path):
-        #         with open(read_dict_path, 'wb') as file:
-        #             pickle.dump(read_dict, file)
-        #             print(f"Saved {read_dict_path}")
-        #     else:
-        #         print(f"File {read_dict_path} already exists. Skipping save.")
-
-        #     # Check if the ref_len_dict file already exists
-        #     ref_len_dict_path = os.path.join(main_dir, pkl_file_name_ref_len_dict)
-        #     if not os.path.exists(ref_len_dict_path):
-        #         with open(ref_len_dict_path, 'wb') as file:
-        #             pickle.dump(ref_len_dict, file)
-        #             print(f"Saved {ref_len_dict_path}")
-        #     else:
-        #         print(f"File {ref_len_dict_path} already exists. Skipping save.")
-
-
-        #     # Store the dictionaries in the universal dictionary with a sample key
-        #     sample_key = f'sample{index}'
-        #     self.all_read_dicts[sample_key] = read_dict
-        #     self.all_ref_len_dicts[sample_key] = ref_len_dict
-"""

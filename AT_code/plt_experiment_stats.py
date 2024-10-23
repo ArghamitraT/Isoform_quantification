@@ -167,14 +167,21 @@ def plot_result_stats(final_result_dir, main_dir, experiment_file, columns_to_pl
 
 # Main function to run the entire process
 def main():
-    # Folder containing the files
-    experiment_file = 'exprmnt_2024_10_03__14_40_03'
+    experiment_file = 'exprmnt_2024_10_15__21_34_20'
+    # "Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
+    experiment = 4
+
+
     main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/'
-    columns_to_plot = ['ELBO_sample_1', 'ELBO_sample_2', 'Convergence_sample_1', 'Convergence_sample_2',
+    
+    if experiment == 1 or experiment==2:
+        columns_to_plot = ['ELBO_sample_1', 'Convergence_sample_1', 'EM_convergence', 
+                            'Spearman_corr_theta1_alpha', 'Alpha_summation', 'EM_loop']
+    elif experiment == 4 :
+        columns_to_plot = ['ELBO_sample_1', 'ELBO_sample_2', 'Convergence_sample_1', 'Convergence_sample_2',
                         'EM_convergence', 'Spearman_corr_theta1_theta2',
                         'Spearman_corr_theta1_alpha', 'Spearman_corr_theta2_alpha', 'Alpha_summation', 'EM_loop']
-    # columns_to_plot = ['ELBO_sample_1', 'Convergence_sample_1', 'EM_convergence', 
-    #                     'Spearman_corr_theta1_alpha', 'Alpha_summation', 'EM_loop']
+
     
     final_result_dir = os.path.join(main_dir, experiment_file, 'weights/') 
     

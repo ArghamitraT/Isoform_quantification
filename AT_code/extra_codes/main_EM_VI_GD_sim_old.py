@@ -1,4 +1,4 @@
-from EM_VI_GD_simulation import Expec_Max
+from EM_VI_GD_sim_old import Expec_Max
 import os
 import argparse
 
@@ -40,7 +40,7 @@ def create_load_file_path():
 ##main_folder = '/Users/arghamitratalukder/Library/CloudStorage/GoogleDrive-at3836@columbia.edu/My Drive/technical_work/RNA_Splicing/data/'
 
 main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/'
-output_file_default = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_PacIllu_VIGD_00000')
+output_file_default = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/outputTRIAL_PacIllu_VIGD_token_00000')
 
 # Set up argparse to handle command-line arguments (AT) TAKE A CLOSE LOOK AT THE DEFAULT VALUES
 parser = argparse.ArgumentParser(description="Process BAM files and output results.")
@@ -79,8 +79,8 @@ load_filename = args.load_filename
 # main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round4/'
 # sample1 = 'SHORT_2024_09_11__00_25_31_sample_1' 
 # sample2 = 'LONG_2024_09_11__00_25_31_sample_1'
-# # sample1 = 'ds_100_num1_aln_01_short' 
-# # sample2 = 'ds_10_num1_aln_01_long'
+sample1 = 'ds_100_num1_aln_01_short' 
+sample2 = 'ds_10_num1_aln_01_long'
 # output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_simulation_VIGD_token_00000')
 
 
