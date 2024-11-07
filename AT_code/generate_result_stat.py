@@ -202,7 +202,7 @@ def spearman_pearson_corr_generic(file_path1, file_path2):
     else:
         print("TPM columns missing or incorrectly named in one of the datasets.")
     
-    return spearman_corr, pearson_corr
+    return round(spearman_corr, 4), round(pearson_corr, 4)
 
 
 
@@ -559,7 +559,7 @@ def calculate_im_acvc(rep1, rep2, directory):
     # # plt.savefig(os.path.join(figure_dir, create_image_name(f"IM_CV_{type}" + timestamp + '.png')))
     # plt.show()
     # plt.close()
-    return ACVC, IM
+    return round(ACVC, 4), round(IM, 4)
 
 
 def merge_csv_files(file1, file2, output_dir):
@@ -611,18 +611,20 @@ def csv_row_parsing_exp4(simulation, pair):
             ) = match.groups()
         if i == 0:
             if sample == '1':
-                file_num1, replica1, dayF1, ds_prctF1 = num1, aln_replica1[1], aln_replica1[0], ds_percentage1
+                file_num1, replica1, dayF1, length, ds_prctF1 = num1, aln_replica1[1], aln_replica1[0], length1, ds_percentage1
             elif sample == '2':
-                file_num1, replica1, dayF1, ds_prctF1 = num2, aln_replica2[1], aln_replica2[0], ds_percentage2
+                file_num1, replica1, dayF1, length, ds_prctF1 = num2, aln_replica2[1], aln_replica2[0], length2, ds_percentage2
             tokenF1, sampleF1 = token, sample
+            file_name1 = f'ds{ds_prctF1}num{file_num1}aln{dayF1}{replica1}{length}'
         else:
             if sample == '1':
                 file_num2, replica2, dayF2, length, ds_prctF2 = num1, aln_replica1[1], aln_replica1[0], length1, ds_percentage1
             elif sample == '2':
                 file_num2, replica2, dayF2, length, ds_prctF2 = num2, aln_replica2[1], aln_replica2[0], length2, ds_percentage2
             tokenF2, sampleF2 = token, sample
+            file_name2 = f'ds{ds_prctF2}num{file_num2}aln{dayF2}{replica2}{length}'
         i+=1
-    return GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2
+    return file_name1, file_name2, GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2
 
 
 def csv_row_parsing_exp1(simulation, pair):
@@ -653,6 +655,7 @@ def csv_row_parsing_exp1(simulation, pair):
             # elif sample == '2':
             #     file_num1, replica1, dayF1, ds_prctF1 = num2, aln_replica2[1], aln_replica2[0], ds_percentage2
             tokenF1, sampleF1 = token, sample
+            file_name1 = f'ds{ds_prctF1}num{file_num1}aln{dayF1}{replica1}{length1}'
         else:
             file_num2, replica2, dayF2, length, ds_prctF2 = num1, aln_replica1[1], aln_replica1[0], length1, ds_percentage1
             # if sample == '1':
@@ -660,8 +663,9 @@ def csv_row_parsing_exp1(simulation, pair):
             # elif sample == '2':
             #     file_num2, replica2, dayF2, length, ds_prctF2 = num2, aln_replica2[1], aln_replica2[0], length2, ds_percentage2
             tokenF2, sampleF2 = token, sample
+            file_name2 = f'ds{ds_prctF2}num{file_num2}aln{dayF2}{replica2}{length1}'
         i+=1
-    return GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2
+    return file_name1, file_name2, GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2
 
 def csv_row_parsing_exp5(simulation, pair):
 
@@ -694,10 +698,10 @@ def csv_row_parsing_exp5(simulation, pair):
 
 
 def main():
-    experiment_file = 'exprmnt_2024_10_15__21_31_07'
-    simulation = 1
+    experiment_file = 'exprmnt_2024_11_05__00_09_05'
+    simulation = 0
     # "Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
-    experiment = 5
+    experiment = 4
 
 
 
@@ -729,26 +733,36 @@ def main():
     with open(csv_file, mode='w', newline='') as file:
         writer = csv.writer(file)
         
-        if experiment == 1:
-            # Write the header row
-            key_file_info = (['Spearman_Corr', 'Pearson_Corr', 'ACVC', 'IM', 'GDlr', 'AlphaInitial', 'EMround', 'length',
-            'file_numF1', 'file_numF2', 'replicaF1', 'replicaF1', 'dayF1', 'dayF2', 'tokenF1', 'tokenF2', 'sampleF1', 'sampleF2','ds_prctF1','ds_prctF2'])
-        elif experiment == 5:
+        # if experiment == 1:
+        #     # Write the header row
+        #     key_file_info = (['Spearman_Corr', 'Pearson_Corr', 'ACVC', 'IM', 'file_name', 'GDlr', 'AlphaInitial', 'EMround', 'length',
+        #     'file_numF1', 'file_numF2', 'replicaF1', 'replicaF1', 'dayF1', 'dayF2', 'tokenF1', 'tokenF2', 'sampleF1', 'sampleF2','ds_prctF1','ds_prctF2'])
+        # elif experiment == 5:
+        #     key_file_info = (['Spearman_Corr', 'Pearson_Corr', 'ACVC', 'IM', 'GDlr', 'AlphaInitial', 'EMround', 'length',
+        #     'file_numF1', 'file_numF2', 'replicaF1', 'replicaF1', 'dayF1', 'dayF2', 'tokenF1', 'tokenF2', 'sampleF1', 'sampleF2','ds_prctF1','ds_prctF2'])
+        # else:
+        #     # Write the header row
+        #     key_file_info = (['Spearman_Corr', 'Pearson_Corr', 'ACVC', 'IM', 'GDlr', 'AlphaInitial', 'EMround', 
+        #                       'tokenF1', 'tokenF2', 'sampleF1', 'sampleF2'])
+        
+        if experiment == 5:
             key_file_info = (['Spearman_Corr', 'Pearson_Corr', 'ACVC', 'IM', 'GDlr', 'AlphaInitial', 'EMround', 'length',
             'file_numF1', 'file_numF2', 'replicaF1', 'replicaF1', 'dayF1', 'dayF2', 'tokenF1', 'tokenF2', 'sampleF1', 'sampleF2','ds_prctF1','ds_prctF2'])
         else:
             # Write the header row
-            key_file_info = (['Spearman_Corr', 'Pearson_Corr', 'ACVC', 'IM', 'GDlr', 'AlphaInitial', 'EMround', 
-                              'tokenF1', 'tokenF2', 'sampleF1', 'sampleF2'])
+            key_file_info = (['Spearman_Corr', 'Pearson_Corr', 'ACVC', 'IM', 'file_name1','file_name2', 'GDlr', 'AlphaInitial', 'EMround', 'length',
+            'file_numF1', 'file_numF2', 'replicaF1', 'replicaF1', 'dayF1', 'dayF2', 'tokenF1', 'tokenF2', 'sampleF1', 'sampleF2','ds_prctF1','ds_prctF2'])
+       
             
+          
         writer.writerow(key_file_info)
         # Iterate through the paired files
         for idx, pair in enumerate(paired_files):
             if experiment == 4 or experiment == 2:
-                GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2\
+                file_name1, file_name2, GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2\
                     =csv_row_parsing_exp4(simulation, pair)
             elif experiment == 1:
-                GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2\
+                file_name1, file_name2, GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2\
                     =csv_row_parsing_exp1(simulation, pair)
             elif experiment == 5:
                 GDlr, AlphaInitial, EMround, tokenF1, tokenF2, sampleF1, sampleF2\
@@ -763,9 +777,9 @@ def main():
             if experiment == 5:
                 row_writing = [spearman_corr, pearson_corr, ACVC, IM, GDlr, AlphaInitial, EMround, tokenF1, tokenF2, sampleF1, sampleF2]
             else:
-                row_writing = [spearman_corr, pearson_corr, ACVC, IM, GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2]
+                row_writing = [spearman_corr, pearson_corr, ACVC, IM, file_name1, file_name2, GDlr, AlphaInitial, EMround, length, file_num1, file_num2, replica1, replica2, dayF1, dayF2, tokenF1, tokenF2, sampleF1, sampleF2, ds_prctF1, ds_prctF2]
             
-            # Write the row to the CSV file
+            # Write the row to the CSV file ##(AT)
             writer.writerow(row_writing)
 
 

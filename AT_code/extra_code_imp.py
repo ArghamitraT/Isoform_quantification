@@ -74,10 +74,10 @@ def copy_scripts(script_name, destination):
     shutil.copy(script_name, destination)
 
 
-destination_folder =  'exprmnt_2024_09_29__22_02_56'
-script_names_list = ['generate_result_stat.py', 'plt_experiment_stats.py']
-script_main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code'
-destination_main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results' 
+# destination_folder =  'exprmnt_2024_09_29__22_02_56'
+# script_names_list = ['generate_result_stat.py', 'plt_experiment_stats.py']
+# script_main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code'
+# destination_main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results' 
 
 # for script in script_names_list:
 #     destination_final_dir = os.path.join(destination_main_dir, destination_folder, 'files')

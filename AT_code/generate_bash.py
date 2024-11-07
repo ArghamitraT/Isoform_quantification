@@ -36,7 +36,7 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
         "cd $HOME\n" + \
         "source ~/.bashrc\n" + \
         "conda activate NanoCount_5\n" + \
-        f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num}"
+        f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num}"
 
     else:
         header = f"#!/bin/bash\n" + \
@@ -44,7 +44,7 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
         "cd $HOME\n" + \
         "source ~/.bashrc\n" + \
         "conda activate NanoCount_5\n" + \
-        f"python {python_file_path} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num}"
+        f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin}"
     
     with open(prg_file_path, "w") as f:
         f.write(header)
@@ -63,7 +63,7 @@ def create_slurm_file(prg_file_path, job_name, slurm_file_path):
     "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
     "##NECESSARY JOB SPECIFICATIONS\n" + \
     f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
-    "#SBATCH --time=35:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
+    "#SBATCH --time=13:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
     "#SBATCH --mem=300G              \n" + \
     "#SBATCH --cpus-per-task=8                   \n" + \
     "#SBATCH --mail-type=END,FAIL    \n" + \
@@ -97,16 +97,6 @@ output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 
 """ **CHANGE (AT)** THE MAIN FOLDER NAME """
 # **** the first element should be LR, the second should be SR ****
-# samples_file_names = [['ds_2_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'], 
-#                       ['ds_10_num1_aln_01_long.bam', 'ds_100_num1_aln_01_short.bam'],
-#                       ['ds_2_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam'], 
-#                       ['ds_10_num1_aln_02_long.bam', 'ds_100_num1_aln_02_short.bam'],
-#                       ['ds_5_num1_aln_03_long.bam', 'ds_100_num1_aln_03_short.bam'], 
-#                       ['ds_10_num1_aln_03_long.bam', 'ds_100_num1_aln_03_short.bam']]
-
-## EXP 3
-# samples_file_names = [['ds_10_num1_aln_01_long', 'ds_100_num1_aln_01_short'], 
-#                       ['ds_10_num1_aln_02_long', 'ds_100_num1_aln_02_short']]
 
 ## EXP 4
 # samples_file_names = [['ds_10_num1_aln_11_long', 'ds_100_num1_aln_01_short'], 
@@ -137,48 +127,66 @@ output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 ## EXP 4 (part II)
 # samples_file_names = [['ds_100_num1_aln_11_short', 'ds_100_num1_aln_01_short'], 
 #                       ['ds_100_num1_aln_12_short', 'ds_100_num1_aln_02_short']]
+########## REAL DATA #########
+# exp 4
+# samples_file_names = [['ds_10_num1_aln_51_long', 'ds_100_num1_aln_01_short'], 
+#                       ['ds_10_num1_aln_52_long', 'ds_100_num1_aln_02_short'],
+#                       ['ds_10_num1_aln_01_long', 'ds_100_num1_aln_51_short'], 
+#                       ['ds_10_num1_aln_02_long', 'ds_100_num1_aln_52_short']]
+# exp 1
+# samples_file_names = [['ds_10_num1_aln_51_long', 'NA'], 
+#                       ['ds_10_num1_aln_52_long', 'NA'],
+#                       ['ds_10_num1_aln_01_long', 'NA'], 
+#                       ['ds_10_num1_aln_02_long', 'NA'],
+#                       ['ds_100_num1_aln_01_short', 'NA'], 
+#                       ['ds_100_num1_aln_02_short', 'NA'],
+#                       ['ds_100_num1_aln_51_short', 'NA'], 
+#                       ['ds_100_num1_aln_52_short', 'NA']]
 
-samples_file_names = [['ds_10_num1_aln_11_long', 'ds_100_num1_aln_01_short']]
-
+samples_file_names = [['ds_10_num1_aln_51_long', 'ds_100_num1_aln_01_short'], 
+                      ['ds_10_num1_aln_52_long', 'ds_100_num1_aln_02_short']]
 
 
 """ **CHANGE (AT)** THE DIRECTORY NAME FROM WHERE WEIGHTS NEEDS TO BE COPIED INTO ./WEIGHTS FOLDER(THE UNIVERSAL WEIGHT FOLDER)"""
-other_script_names = ['EM_VI_GD_simulation.py', 'DirichletOptimizer_vector.py', 'generate_bash.py']
-name_arr = ['main_EM_VI_GD_simulation.py']
+other_script_names = ['EM_VI_GD_vector.py', 'DirichletOptimizer_vector.py', 'generate_bash.py']
+name_arr = ['main_EM_VI_GD_vector.py']
 
-output_file_name = "output_Simulation_VIGD_token_"
 from_where_to_copy = "exprmnt_2024_08_10__02_05_36"
 last_EM_round = 25
 copy_needed = 0 #(AT)
 
-alpha_val_arr = [1e2,1e5]
+alpha_val_arr = [1e5]
 GDlr_val_arr = [0.01]
-EM_round_arr = [100] 
-experiment_num = 4
+EM_round_arr = [30] 
+experiment_num = 4      #"Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
+dirichlet_builtin = 1
+simulation = 0
 
+if simulation:
+    input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round11/'
+    output_file_name = "output_Simulation_VIGD_token_"
+else:
+    input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln_pklfiles/'
+    output_file_name = "output_PacIllu_VIGD_token_"
 
 def create_readme():
     name = os.path.join(data_dir, "readme")
     readme = open(name, "a")
 
     """ **CHANGE (AT)** WRITE THE COMMENT"""
-    comment = f"Experiment:4, running for 300 itr to see if alpha converges WITH built-in dirichlet; simulation, dirichlet liklihood formula considers constant term as much as the number of samples, for dirichlet theta we are taking log exp theta."
+    comment = f"Clean code, real data, experiment 4, 30 epochs, dirichlet builtin"
     readme.write(comment)
     readme.close()
 
 
 def create_load_file_path(file_names_list, GD_lr, alpha_initial):
     default_load_filepath = os.path.join(main_data_dir, from_where_to_copy, 'weights')
-    # Initialize an empty string to store the result
-    fileName = "allWeights"
+    fileName = "allWeights"     # Initialize an empty string to store the result
 
     # Iterate through the list of file names
     for index, file_path in enumerate(file_names_list, start=1):
-        # Split the file path by '/' and take the last part (the file name)
         file_name = file_path.split('/')[-1]
-        # Extract a specific part of the file name if necessary (e.g., removing extension)
         file_identifier = ''.join(file_name.split('_')).split('.')[0]
-        # Construct the string
         fileName += f"_file{index}_{file_identifier}"
     fileName = f"{fileName}_GDlr_{GD_lr}_AlphaInitial_{alpha_initial}.0_EMround_{last_EM_round}"
     file_name = fileName.strip()
@@ -208,11 +216,7 @@ def gen_combination():
                     for EM_round in EM_round_arr:  
 
                         kind = name.split('_')[0]
-                        # python_file_path = os.path.join(os.getcwd(), name)
-                        # utility_file_path = os.path.join(os.getcwd(), "pretrain_utils_1.py")
                         python_file_path = os.path.join(code_dir, name)
-                        #utility_file_path = os.path.join(os.getcwd(), "pretrain_utils_1.py")
-
 
                         hash_obj = random.getrandbits(25)
                         

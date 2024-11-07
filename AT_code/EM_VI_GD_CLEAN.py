@@ -55,7 +55,7 @@ class Expec_Max:
             quiet: bool = False,
             alpha_initial: float = 1, 
             GD_lr: float = 0.01,
-            process: str ='log_expectation_theta', #(AT) 'expectation_log_theta' or 'log_expectation_theta'
+            process: str ='theta', #(AT) 'expectation_log_theta' or 'theta'
             dirichlet_builtin: int = 1, 
             load: int = 0,
             load_filename: str = "",

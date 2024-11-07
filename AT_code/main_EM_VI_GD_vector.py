@@ -1,5 +1,4 @@
 from EM_VI_GD_vector import Expec_Max
-#from save_data import Expec_Max
 import os
 import argparse
 
@@ -38,16 +37,12 @@ def create_load_file_path():
         return file_list[0]
 
 
-
-# main_folder_default = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/'
-# output_file_default = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/outputTRIAL_PacIllu_VIGD_token_00000')
-
 main_folder_default = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln_pklfiles/'
 output_file_default = os.path.join(os.getcwd(), 'results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/outputTRIAL_PacIllu_VIGD_token_00000')
 
 # Set up argparse to handle command-line arguments (AT) TAKE A CLOSE LOOK AT THE DEFAULT VALUES
 parser = argparse.ArgumentParser(description="Process BAM files and output results.")
-parser.add_argument("--input_folder", type=str, default=main_folder_default,
+parser.add_argument("--data_folder", type=str, default=main_folder_default,
                     help="Path for the output file. File name should be in this format 'outputTRIAL_PacIllu_VIGD_token_00000'. Default is files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/outputTRIAL_PacIllu_VIGD_token_00000")
 
 parser.add_argument("--output_path", type=str, default=output_file_default,
@@ -65,7 +60,7 @@ parser.add_argument("--dirichlet_builtin", type=int, default=0, help="if 1 then 
 # Parse the arguments
 args = parser.parse_args()
 # Assign the user-provided or default path to the output_file variable
-input_folder = args.input_folder
+input_folder = args.data_folder
 output_file = args.output_path
 experiment_num = args.experiment_num
 
@@ -85,9 +80,8 @@ dirichlet_builtin = args.dirichlet_builtin
 
 
 ## (AT) SIRV
-# main_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/SIRV/'
-# sample1 = main_folder + 'aln_E0_short.bam'
-# sample2 = main_folder + 'aln_E2_short.bam'
+# sample1 = input_folder  + 'aln_E0_short'
+# sample2 = input_folder + 'aln_E2_short'
 
 # Print all the parameters
 last_EM_round = 25
@@ -101,7 +95,7 @@ print("GD_lr", GD_lr)
 print("alpha_initial", alpha_initial)
 print("max_em_rounds", max_em_rounds)
 print("load", load)
-print("dirichlet", dirichlet_builtin)
+print("dirichlet_builtin", dirichlet_builtin)
 print("experiment_num", experiment_num)
 if experiment_num == 1:
     print("Single sample, no gradient decent")
