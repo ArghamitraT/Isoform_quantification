@@ -36,7 +36,7 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
         "cd $HOME\n" + \
         "source ~/.bashrc\n" + \
         "conda activate NanoCount_5\n" + \
-        f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num}"
+        f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process}"
 
     else:
         header = f"#!/bin/bash\n" + \
@@ -44,7 +44,7 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
         "cd $HOME\n" + \
         "source ~/.bashrc\n" + \
         "conda activate NanoCount_5\n" + \
-        f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin}"
+        f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process}"
     
     with open(prg_file_path, "w") as f:
         f.write(header)
@@ -134,33 +134,33 @@ output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 #                       ['ds_10_num1_aln_01_long', 'ds_100_num1_aln_51_short'], 
 #                       ['ds_10_num1_aln_02_long', 'ds_100_num1_aln_52_short']]
 # exp 1
-# samples_file_names = [['ds_10_num1_aln_51_long', 'NA'], 
-#                       ['ds_10_num1_aln_52_long', 'NA'],
-#                       ['ds_10_num1_aln_01_long', 'NA'], 
-#                       ['ds_10_num1_aln_02_long', 'NA'],
-#                       ['ds_100_num1_aln_01_short', 'NA'], 
-#                       ['ds_100_num1_aln_02_short', 'NA'],
-#                       ['ds_100_num1_aln_51_short', 'NA'], 
-#                       ['ds_100_num1_aln_52_short', 'NA']]
-
-samples_file_names = [['ds_10_num1_aln_51_long', 'ds_100_num1_aln_01_short'], 
-                      ['ds_10_num1_aln_52_long', 'ds_100_num1_aln_02_short']]
-
+samples_file_names = [['ds_10_num1_aln_51_long', 'NA'], 
+                      ['ds_10_num1_aln_52_long', 'NA'],
+                      ['ds_10_num1_aln_01_long', 'NA'], 
+                      ['ds_10_num1_aln_02_long', 'NA'],
+                      ['ds_100_num1_aln_01_short', 'NA'], 
+                      ['ds_100_num1_aln_02_short', 'NA'],
+                      ['ds_100_num1_aln_51_short', 'NA'], 
+                      ['ds_100_num1_aln_52_short', 'NA']]
 
 """ **CHANGE (AT)** THE DIRECTORY NAME FROM WHERE WEIGHTS NEEDS TO BE COPIED INTO ./WEIGHTS FOLDER(THE UNIVERSAL WEIGHT FOLDER)"""
-other_script_names = ['EM_VI_GD_vector.py', 'DirichletOptimizer_vector.py', 'generate_bash.py']
-name_arr = ['main_EM_VI_GD_vector.py']
+other_script_names = ['EM_VIorMAP_GD_vector.py', 'DirichletOptimizer_vector.py', 'generate_bash.py']
+name_arr = ['main_EM_VIorMAP_GD_vector.py']
 
+output_file_name = "output_Simulation_VIGD_token_"
 from_where_to_copy = "exprmnt_2024_08_10__02_05_36"
 last_EM_round = 25
 copy_needed = 0 #(AT)
 
-alpha_val_arr = [1e5]
+alpha_val_arr = [1]
 GDlr_val_arr = [0.01]
 EM_round_arr = [30] 
-experiment_num = 4      #"Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
+experiment_num = 1      #"Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
 dirichlet_builtin = 1
 simulation = 0
+EM_type = 'MAP'
+dirichlet_process = 'theta'
+
 
 if simulation:
     input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round11/'
@@ -174,7 +174,7 @@ def create_readme():
     readme = open(name, "a")
 
     """ **CHANGE (AT)** WRITE THE COMMENT"""
-    comment = f"Clean code, real data, experiment 4, 30 epochs, dirichlet builtin"
+    comment = f"Clean code, real data, experiment 1, 30 epochs, MAP, the purpose is to see if we can get same result as NanoCount"
     readme.write(comment)
     readme.close()
 

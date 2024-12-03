@@ -167,7 +167,7 @@ def plot_result_stats(final_result_dir, main_dir, experiment_file, columns_to_pl
 
 # Main function to run the entire process
 def main():
-    experiment_file = 'exprmnt_2024_11_04__22_14_36'
+    experiment_file = 'exprmnt_2024_11_14__13_21_32'
     # "Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
     experiment = 4
 

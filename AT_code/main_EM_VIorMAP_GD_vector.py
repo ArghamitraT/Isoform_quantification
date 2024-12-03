@@ -1,4 +1,4 @@
-from EM_VI_GD_vector import Expec_Max
+from EM_VIorMAP_GD_vector import Expec_Max
 import os
 import argparse
 
@@ -50,12 +50,15 @@ parser.add_argument("--output_path", type=str, default=output_file_default,
 parser.add_argument("--sample1", type=str, default='aln_E0', help="Sample1 (LR) file name.")
 parser.add_argument("--sample2", type=str, default='aln_E2', help="Sample2 (SR) file name.")
 parser.add_argument("--GD_lr", type=float, default=0.01, help="Learning rate for dirichlet gradient descent.")
-parser.add_argument("--alpha_initial", type=float, default=10000, help="The fixed sum value of alpha")
+parser.add_argument("--alpha_initial", type=float, default=0.0001, help="The fixed sum value of alpha")
 parser.add_argument("--max_em_rounds", type=int, default=2, help="The maximum EM iterations")
 parser.add_argument("--load", type=int, default=0, help="0 or 1 If load is 1, we will load the old weights and resume training") ## (AT)
 parser.add_argument("--load_filename", type=str, default='generic', help="if load==1 (the model needs to resumed training), need a path to load the weights")
 parser.add_argument("--experiment_num", type=int, default=4, help="Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample")
 parser.add_argument("--dirichlet_builtin", type=int, default=0, help="if 1 then uses torch builtin dirichlet function, if 0 then implements the manual calculation")
+parser.add_argument("--EM_type", type=str, default='MAP', help="Inference canbe through VI or MAP")
+parser.add_argument("--dirichlet_process", type=str, default='theta', help="Dirichlet optimization canbe 'expectation_log_theta' or 'theta'")
+
 
 # Parse the arguments
 args = parser.parse_args()
@@ -77,11 +80,12 @@ max_em_rounds = args.max_em_rounds
 load = args.load
 load_filename = args.load_filename
 dirichlet_builtin = args.dirichlet_builtin
-
+EM_type = args.EM_type
+process = args.dirichlet_process
 
 ## (AT) SIRV
-sample1 = input_folder  + 'aln_E0_short'
-sample2 = input_folder + 'aln_E2_short'
+# sample1 = input_folder  + 'aln_E0_short'
+# sample2 = input_folder + 'aln_E2_short'
 
 # Print all the parameters
 last_EM_round = 25
@@ -96,6 +100,9 @@ print("alpha_initial", alpha_initial)
 print("max_em_rounds", max_em_rounds)
 print("load", load)
 print("dirichlet_builtin", dirichlet_builtin)
+print("Inference_type", EM_type)
+print("dirichlet_process", process)
+
 print("experiment_num", experiment_num)
 if experiment_num == 1:
     print("Single sample, no gradient decent")
@@ -120,7 +127,9 @@ Expec_Max (file_names=file_names_list,
            load=load,
            load_filename=load_filename,
            experiment_num = experiment_num,
-           dirichlet_builtin = dirichlet_builtin)
+           dirichlet_builtin = dirichlet_builtin,
+           EM_type=EM_type,
+           process=process)
 
 print("#########END###########")#
 
