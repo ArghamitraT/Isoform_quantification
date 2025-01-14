@@ -1,4 +1,4 @@
-from NanoCount_AT import NanoCount
+from NanoCount import NanoCount
 from NanoCount.common import jhelp, head
 import os
 
@@ -18,10 +18,10 @@ import os
 # output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/ENCFF097KLY_aligned_reads_NC_output.tsv')
 
 
-input_file = "pkl_files/Day0_2_illumina.bam"
-output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/Illu_day0rep2_NC.tsv')
+input_file = "/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/ds_10_num2_aln_52_long.bam"
+output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_PacIllu_VIGD_token_4595533_sample1_file1_ds10num1aln52long_GDlr_0.01_AlphaInitial_1.0_EMround_30_2024_12_16_16_56_06')
 
-NanoCount (alignment_file=input_file, downsampled_files= "pkl_files/Day0_1_illumina.bam", count_file=output_file)
+NanoCount (alignment_file=input_file, count_file=output_file)
 
 
 print("I am done")

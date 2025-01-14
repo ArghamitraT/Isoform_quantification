@@ -1,6 +1,7 @@
 from EM_VI_GD_vector import Expec_Max
 import os
 import argparse
+from process_bam_files import process_bam
 
 
 def create_load_file_path():
@@ -80,8 +81,9 @@ dirichlet_builtin = args.dirichlet_builtin
 
 
 ## (AT) SIRV
-sample1 = input_folder  + 'aln_E0_short'
-sample2 = input_folder + 'aln_E2_short'
+# sample1 = input_folder  + 'aln_E0_short'
+# sample2 = input_folder + 'aln_E2_short'
+process_bam_required = 0
 
 # Print all the parameters
 last_EM_round = 25
@@ -111,6 +113,18 @@ if load:
     print("load_filename", load_filename)
     if load_filename == "generic":
         load_filename= create_load_file_path()
+
+if process_bam_required:
+    process_bam (file_names=file_names_list, 
+           count_file=output_file, 
+           GD_lr=GD_lr, 
+           alpha_initial=alpha_initial, 
+           max_em_rounds=max_em_rounds,
+           load=load,
+           load_filename=load_filename,
+           experiment_num = experiment_num,
+           dirichlet_builtin = dirichlet_builtin)
+
 
 Expec_Max (file_names=file_names_list, 
            count_file=output_file, 

@@ -24,30 +24,44 @@ def create_job_dir(dir="", fold_name = ""):
 ### it calls the .py file
 def create_prg_file(python_file_path, prg_file_path, output_file_path, input_file_names, alpha_initial, GD_lr, EM_round, load_filename, load, experiment_num):
    
-    # header = f"#!/bin/bash\n" + \
-    # "module purge\n" + \
-    # "module load Anaconda3/2021.05\n" + \
-    # "source activate xmodality2\n" + \
-    # f"python {python_file_path} --stp_sz {l0} --l1 {l1} --GATlayer {l2} --dropout {l3} --weight_dir {weight_dir}  --epoch 450 --resume 1 --batch_size 2 --data_prlal 1"
+    if old_prg_file:
+        if experiment_num == 5:
+            header = f"#!/bin/bash\n" + \
+            "set -e\n" + \
+            "cd $HOME\n" + \
+            "source ~/.bashrc\n" + \
+            "conda activate NanoCount_5\n" + \
+            f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num}"
 
-    if experiment_num == 5:
-        header = f"#!/bin/bash\n" + \
-        "set -e\n" + \
-        "cd $HOME\n" + \
-        "source ~/.bashrc\n" + \
-        "conda activate NanoCount_5\n" + \
-        f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process}"
-
+        else:
+            header = f"#!/bin/bash\n" + \
+            "set -e\n" + \
+            "cd $HOME\n" + \
+            "source ~/.bashrc\n" + \
+            "conda activate NanoCount_5\n" + \
+            f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin}"
+        
+        with open(prg_file_path, "w") as f:
+            f.write(header)
     else:
-        header = f"#!/bin/bash\n" + \
-        "set -e\n" + \
-        "cd $HOME\n" + \
-        "source ~/.bashrc\n" + \
-        "conda activate NanoCount_5\n" + \
-        f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process}"
-    
-    with open(prg_file_path, "w") as f:
-        f.write(header)
+        if experiment_num == 5:
+            header = f"#!/bin/bash\n" + \
+            "set -e\n" + \
+            "cd $HOME\n" + \
+            "source ~/.bashrc\n" + \
+            "conda activate NanoCount_5\n" + \
+            f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process} --process_bam_required {process_bam_required}"
+
+        else:
+            header = f"#!/bin/bash\n" + \
+            "set -e\n" + \
+            "cd $HOME\n" + \
+            "source ~/.bashrc\n" + \
+            "conda activate NanoCount_5\n" + \
+            f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process} --process_bam_required {process_bam_required}"
+        
+        with open(prg_file_path, "w") as f:
+            f.write(header)
     return prg_file_path
     
     
@@ -63,9 +77,9 @@ def create_slurm_file(prg_file_path, job_name, slurm_file_path):
     "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
     "##NECESSARY JOB SPECIFICATIONS\n" + \
     f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
-    "#SBATCH --time=13:45:00              #Set the wall clock limit to 1hr and 30min, # takes 100min/EM iteration **CHANGE (AT)**\n" + \
-    "#SBATCH --mem=300G              \n" + \
-    "#SBATCH --cpus-per-task=8                   \n" + \
+    f"#SBATCH --time={hour}:45:00              #Set the wall clock limit \n" + \
+    f"#SBATCH --mem={memory}G              \n" + \
+    f"#SBATCH --cpus-per-task={nthred}                   \n" + \
     "#SBATCH --mail-type=END,FAIL    \n" + \
     f"#SBATCH --output={output_dir}/out_{job_name}.%j      #Send stdout/err to\n" + \
     "#SBATCH --mail-user=atalukder@nygenome.org                    \n" + \
@@ -95,86 +109,52 @@ data_dir   = create_job_dir(dir= data_dir_0, fold_name= "files")
 weight_dir = create_job_dir(dir= data_dir_0, fold_name="weights")
 output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 
-""" **CHANGE (AT)** THE MAIN FOLDER NAME """
+""" Parameters: **CHANGE (AT)** """
 # **** the first element should be LR, the second should be SR ****
-
-## EXP 4
-# samples_file_names = [['ds_10_num1_aln_11_long', 'ds_100_num1_aln_01_short'], 
-#                       ['ds_10_num1_aln_12_long', 'ds_100_num1_aln_02_short'],
-#                       ['ds_10_num1_aln_01_long', 'ds_100_num1_aln_11_short'], 
-#                       ['ds_10_num1_aln_02_long', 'ds_100_num1_aln_12_short']]
-
-# ## EXP 2
-# samples_file_names = [['ds_10_num1_aln_01_long', 'ds_100_num1_aln_01_short'], 
-#                       ['ds_10_num1_aln_02_long', 'ds_100_num1_aln_02_short'],
-#                       ['ds_10_num1_aln_11_long', 'ds_100_num1_aln_11_short'],
-#                       ['ds_10_num1_aln_12_long', 'ds_100_num1_aln_12_short']]
-
-# EXP 5
-# samples_file_names = [[['ds_10_num1_aln_01_long','ds_100_num1_aln_01_short'], ['ds_10_num1_aln_11_long','ds_100_num1_aln_11_short']], 
-#                       [['ds_10_num1_aln_02_long','ds_100_num1_aln_02_short'], ['ds_10_num1_aln_12_long','ds_100_num1_aln_12_short']]]
-
-# ## EXP 1
-# samples_file_names = [['ds_10_num1_aln_01_long', 'NA'], 
-#                       ['ds_10_num1_aln_02_long', 'NA'],
-#                       ['ds_10_num1_aln_11_long', 'NA'],
-#                       ['ds_10_num1_aln_12_long', 'NA'],
-#                       ['ds_100_num1_aln_01_short', 'NA'], 
-#                       ['ds_100_num1_aln_02_short', 'NA'],
-#                       ['ds_100_num1_aln_11_short', 'NA'],
-#                       ['ds_100_num1_aln_12_short', 'NA']]
-
-## EXP 4 (part II)
-# samples_file_names = [['ds_100_num1_aln_11_short', 'ds_100_num1_aln_01_short'], 
-#                       ['ds_100_num1_aln_12_short', 'ds_100_num1_aln_02_short']]
-########## REAL DATA #########
-# exp 4
-# samples_file_names = [['ds_10_num1_aln_51_long', 'ds_100_num1_aln_01_short'], 
-#                       ['ds_10_num1_aln_52_long', 'ds_100_num1_aln_02_short'],
-#                       ['ds_10_num1_aln_01_long', 'ds_100_num1_aln_51_short'], 
-#                       ['ds_10_num1_aln_02_long', 'ds_100_num1_aln_52_short']]
-# exp 1
-samples_file_names = [['ds_10_num1_aln_51_long', 'NA'], 
-                      ['ds_10_num1_aln_52_long', 'NA'],
-                      ['ds_10_num1_aln_01_long', 'NA'], 
-                      ['ds_10_num1_aln_02_long', 'NA'],
-                      ['ds_100_num1_aln_01_short', 'NA'], 
-                      ['ds_100_num1_aln_02_short', 'NA'],
-                      ['ds_100_num1_aln_51_short', 'NA'], 
-                      ['ds_100_num1_aln_52_short', 'NA']]
-
-""" **CHANGE (AT)** THE DIRECTORY NAME FROM WHERE WEIGHTS NEEDS TO BE COPIED INTO ./WEIGHTS FOLDER(THE UNIVERSAL WEIGHT FOLDER)"""
-other_script_names = ['EM_VIorMAP_GD_vector.py', 'DirichletOptimizer_vector.py', 'generate_bash.py']
+# samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_21_short'],
+#                       ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_01_short']]
+# samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_01_short'],
+#                       ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_21_short']]
+samples_file_names = [['ds_100_num1_aln_01_long', 'NA'],
+                        ['ds_100_num1_aln_01_short', 'NA'],
+                        ['ds_100_num1_aln_21_long', 'NA'], 
+                       ['ds_100_num1_aln_21_short', 'NA']]
+# samples_file_names = [['ds_10_num1_aln_52_long', 'ds_100_num1_aln_02_short']]
+# samples_file_names = [['ds_10_num1_aln_52_long', 'NA'],
+#                        ['ds_10_num1_aln_51_long', 'NA']]
+other_script_names = ['EM_VIorMAP_GD_vector.py', 'DirichletOptimizer_vector.py', 'generate_bash.py', 'process_bam_files.py']
 name_arr = ['main_EM_VIorMAP_GD_vector.py']
-
-output_file_name = "output_Simulation_VIGD_token_"
 from_where_to_copy = "exprmnt_2024_08_10__02_05_36"
 last_EM_round = 25
 copy_needed = 0 #(AT)
-
 alpha_val_arr = [1]
 GDlr_val_arr = [0.01]
-EM_round_arr = [30] 
+EM_round_arr = [3] 
 experiment_num = 1      #"Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
-dirichlet_builtin = 1
-simulation = 0
-EM_type = 'MAP'
-dirichlet_process = 'theta'
-
-
+dirichlet_builtin = 0
+simulation = 1
+old_prg_file = 0
+hour=1
+memory=100 # GB
+nthred = 8 # number of CPU
+EM_type = 'MAP'  # "Inference canbe through VI or MAP"
+dirichlet_process = 'theta' # "Dirichlet optimization canbe 'expectation_log_theta' or 'theta'"
+process_bam_required = 0
+readme_comment = f"trial, exp1, simulation, exp5 enabled"
 if simulation:
-    input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/simulation/round11/'
+    input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/pklfiles/'
     output_file_name = "output_Simulation_VIGD_token_"
 else:
+    # input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/subfolder/'
     input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln_pklfiles/'
     output_file_name = "output_PacIllu_VIGD_token_"
+""" Parameters: **CHANGE (AT)** """ 
+
 
 def create_readme():
     name = os.path.join(data_dir, "readme")
     readme = open(name, "a")
-
-    """ **CHANGE (AT)** WRITE THE COMMENT"""
-    comment = f"Clean code, real data, experiment 1, 30 epochs, MAP, the purpose is to see if we can get same result as NanoCount"
+    comment = readme_comment
     readme.write(comment)
     readme.close()
 
@@ -262,31 +242,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-"""
-MAY NEED LATER
-#main_data_dir = os.path.join(pro_dir, "./terra_output_task2_WrmS/")
-python_file_path = "/scratch/user/arghamitra.talukder/WORK/PPI/task2_iSqnc_oRr.py"
-
-
-
-
-# header = f"#!/bin/bash\n" + \
-    # "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
-    # "#SBATCH --export=NONE                #Do not propagate environment\n" + \
-    # "#SBATCH --get-user-env=L             #Replicate login environment\n" + \
-    # "##NECESSARY JOB SPECIFICATIONS\n" + \
-    # f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
-    # "#SBATCH --time=65:00:00              #Set the wall clock limit to 1hr and 30min\n" + \
-    # "##SBATCH --time=45:00              #Set the wall clock limit to 1hr and 30min **CHANGE (AT)**\n" + \
-    # "#SBATCH --ntasks=48                   #Request 1 task\n" + \
-    # "#SBATCH --mem=180000M                  #Request 2560MB (2.5GB) per node **CHANGE (AT)**\n" + \
-    # f"#SBATCH --output={output_dir}/out_{job_name}.%j      #Send stdout/err to\n" + \
-    # "#SBATCH --gres=gpu:a100:2                    #Request 2 GPU per node can be 1 or 2 \n" + \
-    # "##OPTIONAL JOB SPECIFICATIONS\n" + \
-    # "#SBATCH --account=132755309533             #Set billing account to 123456\n" + \
-    # "##SBATCH --mail-type=ALL              #Send email on all job events\n" + \
-    # f"{prg_file_path}"
-
-"""
