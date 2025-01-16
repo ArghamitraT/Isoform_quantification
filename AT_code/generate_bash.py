@@ -73,10 +73,14 @@ def copy_weights(desired_weight_path, to_be_saved_path ):
 
 def create_slurm_file(prg_file_path, job_name, slurm_file_path):
 
+    show_name = '_'.join(job_name.split('_')[1:])
+    show_name = f"{slurm_file_name}_{show_name}"
+
+
     header = f"#!/bin/bash\n" + \
     "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
     "##NECESSARY JOB SPECIFICATIONS\n" + \
-    f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
+    f"#SBATCH --job-name={show_name}      #Set the job name to \"JobExample1\"\n" + \
     f"#SBATCH --time={hour}:45:00              #Set the wall clock limit \n" + \
     f"#SBATCH --mem={memory}G              \n" + \
     f"#SBATCH --cpus-per-task={nthred}                   \n" + \
@@ -111,14 +115,14 @@ output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 
 """ Parameters: **CHANGE (AT)** """
 # **** the first element should be LR, the second should be SR ****
-# samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_21_short'],
-#                       ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_01_short']]
+samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_21_short'],
+                      ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_01_short']]
 # samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_01_short'],
 #                       ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_21_short']]
-samples_file_names = [['ds_100_num1_aln_01_long', 'NA'],
-                        ['ds_100_num1_aln_01_short', 'NA'],
-                        ['ds_100_num1_aln_21_long', 'NA'], 
-                       ['ds_100_num1_aln_21_short', 'NA']]
+# samples_file_names = [['ds_100_num1_aln_01_long', 'NA'],
+#                         ['ds_100_num1_aln_01_short', 'NA'],
+#                         ['ds_100_num1_aln_21_long', 'NA'], 
+#                        ['ds_100_num1_aln_21_short', 'NA']]
 # samples_file_names = [['ds_10_num1_aln_52_long', 'ds_100_num1_aln_02_short']]
 # samples_file_names = [['ds_10_num1_aln_52_long', 'NA'],
 #                        ['ds_10_num1_aln_51_long', 'NA']]
@@ -129,18 +133,19 @@ last_EM_round = 25
 copy_needed = 0 #(AT)
 alpha_val_arr = [1]
 GDlr_val_arr = [0.01]
-EM_round_arr = [3] 
-experiment_num = 1      #"Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
+EM_round_arr = [30] 
+experiment_num = 2      #"Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
+slurm_file_name = 'exp2SimMAPdiffMerge'
 dirichlet_builtin = 0
 simulation = 1
 old_prg_file = 0
-hour=1
-memory=100 # GB
+hour=8
+memory=150 # GB
 nthred = 8 # number of CPU
-EM_type = 'MAP'  # "Inference canbe through VI or MAP"
+EM_type = 'VI'  # "Inference canbe through VI or MAP"
 dirichlet_process = 'theta' # "Dirichlet optimization canbe 'expectation_log_theta' or 'theta'"
 process_bam_required = 0
-readme_comment = f"trial, exp1, simulation, exp5 enabled"
+readme_comment = f"conference experiment, exp2, simulation, VI, different days merged"
 if simulation:
     input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/pklfiles/'
     output_file_name = "output_Simulation_VIGD_token_"

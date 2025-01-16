@@ -194,6 +194,8 @@ def spearman_pearson_corr_generic(file_path1, file_path2, sep_by="\t"):
 
             f"{part1} and {part2}.\nSpearman correlation: {spearman_corr:.3f}\nPearson correlation: {pearson_corr:.3f}"
         )
+
+        # log_file = '/'.join(file_path1.split('/')[0:-1])+'/corr.txt'
         # with open(log_file, 'a') as f:
         #     f.write(formatted_output + '\n')
 
