@@ -45,7 +45,7 @@ class Expec_Max:
             min_query_fraction_aligned: float = 0.5,
             sec_scoring_threshold: float = 0.95,
             sec_scoring_value: str = "alignment_score",
-            convergence_target: float = 0.005,
+            convergence_target: float = 0.001, 
             max_em_rounds: int = 10, 
             extra_tx_info: bool = False,
             primary_score: str = "alignment_score",
@@ -280,7 +280,7 @@ class Expec_Max:
         print(f"time_household_before_EM {interval} min")
 
         # Iterate until convergence threshold or max EM round are reached
-        while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: ## (AT)
+        while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds:
         # while self.em_round < self.max_em_rounds:
             self.convergence = 0
             self.em_round += 1
@@ -304,9 +304,9 @@ class Expec_Max:
             # EM
             sample_num = 0
             for sample_key in self.all_read_dicts:
+                self.all_theta[sample_key], convergence = self.update_theta_vectorized(sample_key)
                 self.all_Phi_ri[sample_key] = self.calculate_Z(self.all_readName[sample_key], self.all_readIsoformMap[sample_key], self.all_Yri[sample_key], self.all_read_iso_prob[sample_key], self.all_theta[sample_key])
                 self.all_n[sample_key] = self.calculate_n_vectorized(sample_key)
-                self.all_theta[sample_key], convergence = self.update_theta_vectorized(sample_key)
                 sample_num +=1
                 self.convergence += convergence
                 self.elbo[sample_key] = 0
@@ -453,8 +453,8 @@ class Expec_Max:
         print(f"time_household_before_EM {interval} min")
 
         # Iterate until convergence threshold or max EM round are reached
-        #while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: ## (AT)
-        while self.em_round < self.max_em_rounds:
+        while self.convergence > self.convergence_target and self.em_round < self.max_em_rounds: 
+        # while self.em_round < self.max_em_rounds:
             self.convergence = 0
             self.em_round += 1
             elbo_values = {}
@@ -592,14 +592,14 @@ class Expec_Max:
     def create_saved_state_filename(self, result):
         
         # Iterate through the list of file names
-        for fileName_list in self.file_names_list:
+        for fileNamelist_index, fileName_list in enumerate(self.file_names_list, start=1):
             for index, file_path in enumerate(fileName_list, start=1):
                 # Split the file path by '/' and take the last part (the file name)
                 file_name = file_path.split('/')[-1]
                 # Extract a specific part of the file name if necessary (e.g., removing extension)
                 file_identifier = ''.join(file_name.split('_')).split('.')[0]
                 # Construct the string
-                result += f"_file{index}_{file_identifier}"
+                result += f"_file{fileNamelist_index}_{file_identifier}"
         result = f"{result}_GDlr_{self.GD_lr}_AlphaInitial_{self.alpha_initial}_EMround_{self.max_em_rounds}"
         return result
 
@@ -896,7 +896,7 @@ class Expec_Max:
         Returns:
         Counter: The expected log theta values as a Counter.
         """
-        # Extract alpha_prime as a NumPy array for the given sample
+        # Extract alpha_prime as a NumPy array for the given samplexx
         alpha_prime = self.all_alpha_prime[sample_key]  # Assuming this is a NumPy array
         sum_alpha_prime = np.sum(alpha_prime)
 
@@ -1117,29 +1117,18 @@ class Expec_Max:
         # Map isoforms (rnames) to indices in theta_names (isoforms used in theta)
         unique_rnames, isoform_indices = np.unique(all_readIsoformMap, return_inverse=True)
 
-        # Get theta values for each isoform
+        # Get theta values for each isoform (isoform values are strored as sorted isoform names)
         theta_for_isoforms = all_theta[isoform_indices]
         
-        ## (AT)
-        # # Step 1: Calculate denominator for each read
-        # compat_theta_product = p_nm * theta_for_isoforms
-        # denominators = np.zeros(len(unique_reads))
-        # denominators = denominators.astype(float)
-
-        # np.add.at(denominators, read_indices, compat_theta_product)
-
-        # # Step 2: Calculate Z_ri values
-        # Z_values = (p_nm * theta_for_isoforms) / denominators[read_indices]
-
         # Step 1: Calculate denominator for each read
-        compat_theta_product = theta_for_isoforms
+        compat_theta_product = p_nm * theta_for_isoforms
         denominators = np.zeros(len(unique_reads))
         denominators = denominators.astype(float)
 
         np.add.at(denominators, read_indices, compat_theta_product)
 
         # Step 2: Calculate Z_ri values
-        Z_values = (theta_for_isoforms) / denominators[read_indices]
+        Z_values = (p_nm * theta_for_isoforms) / denominators[read_indices]
 
         return Z_values
 
@@ -1238,12 +1227,31 @@ class Expec_Max:
             - `compatibility_list`: Compatibility scores inversely proportional to the number of alignments per read.
             - `p_nm`: Normalized probabilities for each alignment, adjusted by reference length and alignment length.
             """
-
+        # (AT)
         # Fetch reference lengths and names
         read_dict = self.all_read_dicts[sample_key]
         ref_len_dict = self.all_ref_len_dicts[sample_key]
 
+
+        compatibility_dict = defaultdict(dict)
+        for read_name, read in read_dict.items():
+            for alignment in read.alignment_list:
+                compatibility_dict[read_name][alignment.rname] = score = 1.0 / read.n_alignment
+
+        
     
+        abundance_dict = Counter()
+        total = 0
+        convergence = 0
+
+        for read_name, comp in compatibility_dict.items():
+            for ref_name, score in comp.items():
+                abundance_dict[ref_name] += score
+                total += score
+
+        for ref_name in abundance_dict.keys():
+            abundance_dict[ref_name] = abundance_dict[ref_name] / total
+
         # Create a mapping of reference names to indices for quick lookup
         ref_len_dict_keys = np.array(list(ref_len_dict.keys()))
         
@@ -1277,7 +1285,7 @@ class Expec_Max:
         all_read_names = np.array(all_read_names)
 
         # Sort all arrays based on `all_read_names` and `all_readIsoformMap` to maintain consistent ordering
-        sort_indices = np.lexsort((all_readIsoformMap, all_read_names))  # Sort by `all_read_names`, then by `all_readIsoformMap`
+        sort_indices = np.lexsort((all_readIsoformMap, all_read_names))# Sort by `all_read_names`, then by `all_readIsoformMap`
         all_read_names = all_read_names[sort_indices]
         all_readIsoformMap = all_readIsoformMap[sort_indices]
         all_alignment_lens = all_alignment_lens[sort_indices]
@@ -1297,6 +1305,18 @@ class Expec_Max:
         # Handle problematic probabilities
         problematic_indices = np.isnan(p_nm) | (p_nm < 0)
         p_nm[problematic_indices] = 1  # Replace problematic probabilities with 1
+
+        abundance_keys = set(abundance_dict.keys())  # Set of isoforms from abundance_dict
+        read_isoform_keys = set(all_readIsoformMap)  # Unique isoforms from all_readIsoformMap
+
+        print(len(read_isoform_keys))
+        print(len(abundance_keys))
+
+
+        # Find isoforms in `abundance_dict` that are missing in `all_readIsoformMap`
+        missing_in_readIsoformMap = abundance_keys - read_isoform_keys  
+
+        theta_names, inverse_indices = np.unique(all_readIsoformMap, return_inverse=True)
         
         return all_read_names, all_readIsoformMap, compatibility_list, p_nm
     
@@ -1442,6 +1462,8 @@ class Expec_Max:
             
             # Update the set of unique isoforms
             all_unique_isoforms_set.update(theta_names)
+
+
             self.all_Phi_ri[sample_key] = self.calculate_Z(all_read_names, all_readIsoformMap, compatibility_list, p_nm, all_theta)
             if self.EM_type == 'MAP':
                 self.all_n[sample_key] = self.calculate_n_vectorized(sample_key)

@@ -115,11 +115,14 @@ output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 
 """ Parameters: **CHANGE (AT)** """
 # **** the first element should be LR, the second should be SR ****
-# samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_21_short'],
-#                       ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_01_short']]
+samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_21_short'],
+                      ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_01_short']]
 # samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_01_short'],
 #                       ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_21_short']]
-samples_file_names = [['ds_100_num1_aln_21_long', 'NA']]
+# samples_file_names = [['ds_100_num1_aln_01_long', 'NA'],
+#                         ['ds_100_num1_aln_01_short', 'NA'],
+#                         ['ds_100_num1_aln_21_long', 'NA'], 
+#                        ['ds_100_num1_aln_21_short', 'NA']]
 # samples_file_names = [['ds_10_num1_aln_52_long', 'ds_100_num1_aln_02_short']]
 # samples_file_names = [['ds_10_num1_aln_52_long', 'NA'],
 #                        ['ds_10_num1_aln_51_long', 'NA']]
@@ -128,24 +131,22 @@ name_arr = ['main_EM_VIorMAP_GD_vector.py']
 from_where_to_copy = "exprmnt_2024_08_10__02_05_36"
 last_EM_round = 25
 copy_needed = 0 #(AT)
-alpha_val_arr = [1]
+alpha_val_arr = [10000]
 GDlr_val_arr = [0.01]
-EM_round_arr = [100] 
-experiment_num = 1      #"Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
+EM_round_arr = [30] 
+experiment_num = 4      #"Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
 dirichlet_builtin = 0
 simulation = 1
 old_prg_file = 0
-hour=5
+hour=7
 memory=100 # GB
 nthred = 8 # number of CPU
 EM_type = 'MAP'  # "Inference canbe through VI or MAP"
 dirichlet_process = 'theta' # "Dirichlet optimization canbe 'expectation_log_theta' or 'theta'"
 process_bam_required = 0
-readme_comment = (
-    "tryng my algo from the parsed data from my pc"
-)
+readme_comment = f"conference experiment, exp4, simulation, MAP, reduced delta theta to 0.001, newly aligned LR .bam files with new minimap version 2.28"
 if simulation:
-    input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/pklfiles/new_minimap_file_originalparsing//'
+    input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/pklfiles/new_minimap_file/'
     output_file_name = "output_Simulation_VIGD_token_"
 else:
     # input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/subfolder/'
@@ -154,7 +155,7 @@ else:
 """ Parameters: **CHANGE (AT)** """ 
 
 
-slurm_file_name = 'exp1SimMAP'
+slurm_file_name = 'exp4SimMAP'
 
 def create_readme():
     name = os.path.join(data_dir, "readme")

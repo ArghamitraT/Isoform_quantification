@@ -62,7 +62,8 @@ class process_bam:
             load_filename: str = "",
             experiment_num: int = 4,
             parse_original: int = 0,
-            process_dir: str = ""
+            process_dir: str = "",
+            bam_dir: str = ""
     ):
         """
         NOTE: File file does not use any hashing and runs EM on both ambiguous and unambiguous reads. This can be improved in future
@@ -154,6 +155,7 @@ class process_bam:
         self.dirichlet_builtin=dirichlet_builtin
         self.parse_original = parse_original
         self.process_dir = process_dir
+        self.bam_dir = bam_dir
 
 
         print("Initialise Nanocount")
@@ -1023,6 +1025,8 @@ class process_bam:
 
         # Loop over all file names provided and parses the reads with
         for index, file_name in enumerate(self.file_names_list, start=1):
+            main_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/new_minimap_file'
+            file_name = main_dir+'/'+file_name
             print(f"sample_{index} {file_name}")
             # Parse the BAM file
             if self.parse_original:

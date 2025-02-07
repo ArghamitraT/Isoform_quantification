@@ -38,16 +38,30 @@ def create_load_file_path():
         return file_list[0]
 
 ######### parameters (AT) #############
-# default_sample1 =  ['aln_E0_short', 'aln_E2_short']
-# default_sample2 =  ['aln_E0_short', 'aln_E2_short']
+
+# # default_sample1 =  ['aln_E0_short', 'aln_E2_short']
+# # default_sample2 =  ['aln_E0_short', 'aln_E2_short']
 default_sample1 =  ['aln_E0_short']
 default_sample2 =  ['aln_E2_short']
-process_bam_required_default = 0
-parse_original = 1 #if 1 then, runs original nanocount parsing
 process_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln_pklfiles/' #where processed data gets saved
 main_folder_default = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln_pklfiles/'
+
+# default_sample1 =  ['ds_100_num1_aln_21_long']
+# default_sample2 =  ['NA']
+# process_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/data/Argha/RNA_Splicing/data/sim_real_data/pklfiles/new_minimap_file_originalparsing/' #where processed data gets saved
+# main_folder_default = '/gpfs/commons/home/atalukder/RNA_Splicing/data/Argha/RNA_Splicing/data/sim_real_data/pklfiles/new_minimap_file_originalparsing/'
+
+
+process_bam_required_default = 0
+parse_original = 0 #if 1 then, runs original nanocount parsing
+# default_sample1 =  ['ds_100_num1_aln_01_long']
+# default_sample2 =  ['NA']
+# process_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/pklfiles/new_minimap_file_originalparsing/' #where processed data gets saved
+# main_folder_default = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/pklfiles/new_minimap_file_originalparsing/'
+
+
 output_file_default = os.path.join(os.getcwd(), 'results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/outputTRIAL_PacIllu_VIGD_token_00000')
-experiment_num_default = 4
+experiment_num_default = 1
 EM_default = 'MAP'
 parser = argparse.ArgumentParser(description="Process BAM files and output results.")
 parser.add_argument("--data_folder", type=str, default=main_folder_default,
@@ -133,6 +147,8 @@ if load:
 process_bam_required = args.process_bam_required
 if process_bam_required:
     print ("data processing mode.......................")
+    file_names_list = [item for sublist in file_names_list for item in sublist]
+    file_names_list = [file.split('/')[-1]+'.bam' for file in file_names_list]
     process_bam (file_names=file_names_list, 
            count_file=output_file, 
            GD_lr=GD_lr, 
