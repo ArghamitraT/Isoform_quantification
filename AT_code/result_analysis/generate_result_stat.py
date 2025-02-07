@@ -696,10 +696,10 @@ def csv_row_parsing_exp5(simulation, pair):
 
 
 def main():
-    experiment_file = 'exprmnt_2024_12_08__23_58_50'
-    simulation = 1
+    experiment_file = 'exprmnt_2025_01_21__17_25_37'
+    simulation = 0
     # "Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
-    experiment = 2
+    experiment = 4
 
 
 

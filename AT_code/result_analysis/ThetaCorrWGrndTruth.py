@@ -139,9 +139,9 @@ if __name__ == "__main__":
     
     ######## parameters ##########
     main_result_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results'
-    experiment_file = 'exprmnt_2025_01_14__18_37_47'
+    experiment_file = 'exprmntSingleRun_2024_00_00__00_00_00'
     simulation = 1
-    experiment = 5  # "Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
+    experiment = 1  # "Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
     # file_arr  = ['output_Simulation_VIGD_token_10896541_sample1_file1_ds100num1aln01long_GDlr_0.01_AlphaInitial_1.0_EMround_25_2024_12_8_22_22_08.tsv']
     directory = os.path.join(main_result_dir, experiment_file, 'files/output_files/')
     file_arr  = os.listdir(directory)

@@ -18,8 +18,8 @@ import os
 # output_file = os.path.join(os.getcwd(), '../../files/NanoCount_output/ENCFF097KLY_aligned_reads_NC_output.tsv')
 
 
-input_file = "/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_Liz/transcriptome_aln/ds_10_num2_aln_52_long.bam"
-output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/output_PacIllu_VIGD_token_4595533_sample1_file1_ds10num1aln52long_GDlr_0.01_AlphaInitial_1.0_EMround_30_2024_12_16_16_56_06')
+input_file = "/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/pklfiles/new_minimap_file_originalparsing/ds_100_num1_aln_21_long.bam"
+output_file = os.path.join(os.getcwd(), '../../files/results/exprmntSingleRun_2024_00_00__00_00_00/files/output_files/nancount')
 
 NanoCount (alignment_file=input_file, count_file=output_file)
 
