@@ -30,7 +30,8 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
             "set -e\n" + \
             "cd $HOME\n" + \
             "source ~/.bashrc\n" + \
-            "conda activate NanoCount_5\n" + \
+            # "conda activate NanoCount_5\n" + \ # replacign with my conda env name
+            "conda activate joli_test\n" + \
             f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num}"
 
         else:
@@ -38,7 +39,8 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
             "set -e\n" + \
             "cd $HOME\n" + \
             "source ~/.bashrc\n" + \
-            "conda activate NanoCount_5\n" + \
+            # "conda activate NanoCount_5\n" + \ # replacign with my conda env name
+            "conda activate joli_test\n" + \
             f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin}"
         
         with open(prg_file_path, "w") as f:
@@ -49,7 +51,8 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
             "set -e\n" + \
             "cd $HOME\n" + \
             "source ~/.bashrc\n" + \
-            "conda activate NanoCount_5\n" + \
+             # "conda activate NanoCount_5\n" + \ # replacign with my conda env name
+            "conda activate joli_test\n" + \
             f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]} {input_file_names[1]} --sample2 {input_file_names[2]} {input_file_names[3]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process} --process_bam_required {process_bam_required}"
 
         else:
@@ -57,7 +60,8 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
             "set -e\n" + \
             "cd $HOME\n" + \
             "source ~/.bashrc\n" + \
-            "conda activate NanoCount_5\n" + \
+            # "conda activate NanoCount_5\n" + \ # replacign with my conda env name
+            "conda activate joli_test\n" + \
             f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]}  --sample2 {input_file_names[1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process} --process_bam_required {process_bam_required}"
         
         with open(prg_file_path, "w") as f:
@@ -86,7 +90,7 @@ def create_slurm_file(prg_file_path, job_name, slurm_file_path):
     f"#SBATCH --cpus-per-task={nthred}                   \n" + \
     "#SBATCH --mail-type=END,FAIL    \n" + \
     f"#SBATCH --output={output_dir}/out_{job_name}.%j      #Send stdout/err to\n" + \
-    "#SBATCH --mail-user=atalukder@nygenome.org                    \n" + \
+    "#SBATCH --mail-user=wmonical@nygenome.org                    \n" + \
     f"{prg_file_path}"
 
     with open (slurm_file_path, "w") as f:
@@ -102,11 +106,17 @@ def get_file_name(kind, l0=0, l1=0, l2=0, l3=0, ext=True):
     return file_name
 
 
+# real code
+#main_data_dir = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
+#job_path = "/gpfs/commons/home/atalukder/RNA_Splicing/files/cluster_job_submission_files"
+#code_dir = "/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code"
+#where_to_save = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results/saved_weights_toResume"
 
-main_data_dir = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
-job_path = "/gpfs/commons/home/atalukder/RNA_Splicing/files/cluster_job_submission_files"
-code_dir = "/gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code"
-where_to_save = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results/saved_weights_toResume"
+# test code
+main_data_dir = "/gpfs/commons/home/wmonical/RNA_Splicing/files/results"
+job_path = "/gpfs/commons/home/wmonical/RNA_Splicing/files/cluster_job_submission_files"
+code_dir = "/gpfs/commons/home/wmonical/Isoform_quantification/AT_code"
+where_to_save = "/gpfs/commons/home/wmonical/RNA_Splicing/files/results/saved_weights_toResume"
 
 data_dir_0   = create_job_dir(dir= main_data_dir, fold_name= "exprmnt"+trimester)
 data_dir   = create_job_dir(dir= data_dir_0, fold_name= "files")
@@ -237,9 +247,10 @@ def gen_combination():
 
                         # #os.system(f"cp {utility_file_path} {data_dir}")
                         ## (AT)
-                        os.system(f"chmod u+x {prg_file_path}")
-                        os.system(f"chmod u+x {slurm_file_path}")
-                        os.system(f"sbatch {slurm_file_path}")
+                        ## I don't want to do these things
+                        # os.system(f"chmod u+x {prg_file_path}") 
+                        # os.system(f"chmod u+x {slurm_file_path}")
+                        # os.system(f"sbatch {slurm_file_path}")
                     
 
 def main():
