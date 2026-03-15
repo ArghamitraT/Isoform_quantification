@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+AT_code/pkl_files/
+AT_code/figures/
+AT_code/results/
+JOLI_Kallisto/debug/
+JOLI_Kallisto/compare_abundance/*.tsv

@@ -1,0 +1,240 @@
+Let me first explore the kallisto C++ codebase to understand its EM and EC implementation.
+
+● Explore(Explore kallisto C++ EM code)
+  ⎿  Done (25 tool uses · 83.9k tokens · 1m 32s)
+  (ctrl+o to expand)
+
+● Now let me check what's already in your JOLI_Kallisto directory.
+
+● Explore(Explore JOLI_Kallisto codebase)
+  ⎿  Done (12 tool uses · 34.7k tokens · 1m 40s)
+  (ctrl+o to expand)
+
+● Excellent. I now have a complete picture of all three codebases. Here's what I examined and the plan:
+
+  ---
+  Files I Examined
+
+  Kallisto C++ (reference EM implementation)
+
+  ┌─────────────────────────────────────┬──────────────────────────────────────────────────────────────────────┐
+  │                File                 │                                 Role                                 │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ kallisto/src/EMAlgorithm.h          │ Core EM: alpha_ (counts), rho_ (abundance), weight_map_, convergence │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ kallisto/src/weights.h/cpp          │ Effective length computation, EC-to-transcript weight calculation    │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ kallisto/src/MinCollector.h/cpp     │ EC construction (k-mer intersection), counts[] accumulation          │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ kallisto/src/KmerIndex.h            │ EC storage via Roaring bitmaps (EcMapInv)                            │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ kallisto/src/ProcessReads.cpp       │ Read pseudoalignment → EC assignment                                 │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ kallisto/src/PlaintextWriter.cpp    │ TPM normalization and output                                         │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ kallisto/src/main.cpp (lines 2802+) │ quant-tcc pipeline entry point                                       │
+  └─────────────────────────────────────┴──────────────────────────────────────────────────────────────────────┘
+
+  AT_code (your existing EM)
+
+  ┌──────────────────────────────────────┬─────────────────────────────────────────────────────────────┐
+  │                 File                 │                            Role                             │
+  ├──────────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+  │ AT_code/EM_VIorMAP_GD_vector.py      │ Core EM with VI/MAP, per-read Phi assignments, Dirichlet GD │
+  ├──────────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+  │ AT_code/DirichletOptimizer_vector.py │ PyTorch alpha optimization                                  │
+  ├──────────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+  │ AT_code/main_EM_VIorMAP_GD_vector.py │ Entry point with argparse                                   │
+  └──────────────────────────────────────┴─────────────────────────────────────────────────────────────┘
+
+  JOLI_Kallisto (your current wrapper)
+
+  ┌─────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────┐
+  │                File                 │                                     Role                                     │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┤
+  │ JOLI_Kallisto/run_lr_kallisto.sh    │ Pipeline: kallisto bus → bustools sort → bustools count → kallisto quant-tcc │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┤
+  │ JOLI_Kallisto/submit_lr_kallisto.sh │ SLURM wrapper                                                                │
+  ├─────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┤
+  │ JOLI_Kallisto/mtx_to_tsv.py         │ Sparse matrix → TSV converter                                                │
+  └─────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────┘
+
+  ---
+  The Core Insight
+
+  You don't need to modify kallisto's C++. The architecture splits cleanly:
+
+  KEEP from kallisto (steps 1-3):    REPLACE with your EM (step 4):
+    kallisto bus                       kallisto quant-tcc
+    bustools sort                         ↓
+    bustools count                     YOUR Python EM
+         ↓                            on equivalence classes
+    count.mtx + matrix.ec + transcripts.txt
+
+  Kallisto's pseudoalignment gives you equivalence classes (ECs) + counts as a TCC matrix. Your Python EM replaces kallisto quant-tcc by operating on ECs instead of individual reads — same math, much more efficient
+  representation.
+
+  ---
+  Variable Mapping: Kallisto → AT_code → New JOLI
+
+  ┌──────────────────────────────────┬────────────────────┬───────────────────────────────────┬────────────────────────────────────┐
+  │             Concept              │    Kallisto C++    │          AT_code Python           │          New JOLI Python           │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ Isoform abundance (unnormalized) │ alpha_[t]          │ all_theta[sample]                 │ theta[t]                           │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ Normalized abundance             │ rho_[t]            │ all_theta[sample] (already norm.) │ rho[t]                             │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ Counts per EC                    │ counts_[ec]        │ N/A (per-read: all_Phi_ri)        │ ec_counts[ec]                      │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ EC → transcript mapping          │ EcMapInv (Roaring) │ all_readIsoformMap                │ ec_transcripts[ec] (list of lists) │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ Compatibility weight             │ weight_map_[ec][t] │ all_read_iso_prob (p_nm)          │ ec_weights[ec][t]                  │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ Effective length                 │ eff_lens_[t]       │ ref_len - align_len + 1           │ eff_lens[t]                        │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ Assignment (E-step)              │ inline in EM loop  │ all_Phi_ri (Φ_nm)                 │ phi[ec][t] (fractional per EC)     │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ Isoform counts (M-step)          │ next_alpha[t]      │ all_n[sample] (n_i)               │ n[t]                               │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ Dirichlet prior                  │ N/A                │ all_alpha                         │ alpha[t] (Phase 2)                 │
+  ├──────────────────────────────────┼────────────────────┼───────────────────────────────────┼────────────────────────────────────┤
+  │ Dirichlet posterior              │ N/A                │ all_alpha_prime[sample]           │ alpha_prime[t] (Phase 2)           │
+  └──────────────────────────────────┴────────────────────┴───────────────────────────────────┴────────────────────────────────────┘
+
+  ---
+  Implementation Plan
+
+  Phase 1: Single-Sample EC-Based EM (Core)
+
+  Step 1.1 — TCC Data Loader (JOLI_Kallisto/load_tcc.py)
+
+  Read kallisto's output files into Python data structures:
+  - count.mtx → sparse TCC matrix → ec_counts[ec_id] = count
+  - matrix.ec → EC definitions → ec_transcripts[ec_id] = [tx_id_1, tx_id_2, ...]
+  - transcripts.txt → transcript_names[tx_id] = name
+  - Optionally read run_info.json for transcript lengths → eff_lens[tx_id]
+
+  Step 1.2 — Weight Computation (JOLI_Kallisto/weights.py)
+
+  Replicate kallisto's weight calculation:
+  # For each EC:
+  #   For each transcript t in EC:
+  #     weight[ec][t] = 1.0 / eff_lens[t]
+  # (effective-length normalization)
+
+  Step 1.3 — EM Algorithm on ECs (JOLI_Kallisto/em_algorithm.py)
+
+  A JoliEM class that mirrors your Expec_Max but operates on ECs:
+
+  Initialization:
+    theta[t] = 1 / num_transcripts  (uniform)
+
+  For each EM iteration:
+    # E-step + M-step combined (like kallisto):
+    n[t] = 0  for all t
+
+    For each EC with ec_counts[ec] > 0:
+      denom = sum( theta[t] * weight[ec][t]  for t in ec_transcripts[ec] )
+      For each t in ec_transcripts[ec]:
+        n[t] += ec_counts[ec] * (theta[t] * weight[ec][t]) / denom
+
+    # Normalize:
+    theta = n / sum(n)
+
+    # Convergence check:
+    if max(|theta_new - theta_old|) < tol: break
+
+  This is mathematically identical to both kallisto's C++ EM and your AT_code MAP EM (with alpha=1), but operates on ECs instead of individual reads.
+
+  Step 1.4 — Output Writer (JOLI_Kallisto/output_writer.py)
+
+  Compute and write results:
+  est_counts[t] = theta[t] * total_reads
+  tpm[t] = (theta[t] / eff_lens[t]) / sum(theta / eff_lens) * 1e6
+  Output: abundance.tsv with columns transcript_name | est_count | tpm
+
+  Step 1.5 — JOLI EM Entry Point (JOLI_Kallisto/main_joli.py)
+
+  Pure Python CLI: takes a sample dir with TCC files, runs JOLI EM, writes abundance.tsv.
+  No subprocess calls — clean Python breakpoint-friendly entry point.
+
+  CLI:
+    python main_joli.py \
+        --sample_dir  <path containing count.mtx, matrix.ec, transcripts.txt> \
+        --output_dir  <where to write abundance.tsv> \
+        --max_em_rounds 10000 \
+        --eff_len_mode  uniform \
+        --em_type       plain
+
+  Step 1.6 — Shell Pipeline (JOLI_Kallisto/run_joli_kallisto.sh)  [NEW FILE, do not edit run_lr_kallisto.sh]
+
+  Shell script that:
+    1. Reads CONFIG section (binary paths, index, sample list)
+    2. For each sample: checks bustools cache
+         cache hit  -> skip steps 1-3
+         cache miss -> run kallisto bus + bustools sort + bustools count
+                       save outputs to <reads_dir>/kallisto_output/<sample_stem>/
+    3. Calls python main_joli.py on the TCC cache dir
+    4. Saves results to timestamped output folder
+
+  THIS IS WHERE THE CACHE CHECK LIVES (not in main_joli.py).
+
+  SLURM submission: submit_joli_pipeline.sh (edit existing) -> submits run_joli_kallisto.sh
+
+  Do NOT modify: run_lr_kallisto.sh, submit_lr_kallisto.sh (legacy pipeline, kept intact).
+
+  ---
+  Phase 2: Add Dirichlet Prior (MAP mode)
+
+  Extend the EM with your Dirichlet MAP estimate:
+
+  M-step becomes:
+    theta[t] = (n[t] + alpha[t] - 1) / (sum(n) + sum(alpha) - K)
+
+  - Port DirichletOptimizer_vector.py to work with EC-based theta
+  - Add --alpha_initial and --EM_type MAP flags
+
+  ---
+  Phase 3: Multi-Sample with Shared Alpha (GD)
+
+  - Load TCC matrices from multiple samples
+  - Run per-sample EM with shared alpha vector
+  - After each round, run GD on alpha using all samples' theta values
+  - Maps to your experiment types 4 and 5
+
+  ---
+  Phase 4: VI Mode
+
+  - Add alpha_prime, expectation_log_theta, ELBO computation
+  - E-step uses exp(E_Q[log theta]) instead of theta
+  - Maps to your existing VI implementation
+
+  ---
+  File Structure (Final)
+
+  JOLI_Kallisto/
+  ├── run_lr_kallisto.sh          # LEGACY: original kallisto pipeline (do not modify)
+  ├── submit_lr_kallisto.sh       # LEGACY: SLURM wrapper for above (do not modify)
+  ├── mtx_to_tsv.py              # LEGACY: sparse matrix converter (kept for compat)
+  ├── main_pipeline.py            # Python full-pipeline orchestrator (Python alternative to .sh)
+  ├── run_joli_kallisto.sh        # NEW: shell pipeline with cache check + JOLI EM
+  ├── submit_joli_pipeline.sh     # UPDATED: submits run_joli_kallisto.sh to SLURM
+  ├── main_joli.py               # NEW: pure Python JOLI EM entry point (breakpoint-friendly)
+  ├── load_tcc.py                # NEW: TCC/EC data loader (Step 1.1)
+  ├── weights.py                 # NEW: effective length & weight computation (Step 1.2)
+  ├── em_algorithm.py            # NEW: EC-based EM (Step 1.3; extends to MAP/VI/multi)
+  ├── output_writer.py           # NEW: abundance.tsv writer (Step 1.4)
+  ├── dirichlet_optimizer.py     # NEW: Phase 2+ (port of DirichletOptimizer_vector.py)
+  └── test_JolitoKallisto.py     # Cumulative test file (one section per step)
+
+  ---
+  Why This Design
+
+  1. Reuse kallisto's pseudoalignment — the hard part (k-mer indexing, EC construction) stays in optimized C++
+  2. EC-based EM is orders of magnitude faster than per-read — a dataset with 1M reads might have only 50K ECs
+  3. Clean separation — your Python EM is independent of kallisto's C++, easy to iterate on
+  4. Same math — EC-based EM is mathematically equivalent to per-read EM (ECs just group identical reads)
+  5. Incremental — Phase 1 works standalone; Phases 2-4 add your unique contributions (Dirichlet GD, multi-sample, VI)
+
+  ---
+  Shall I proceed with Phase 1 implementation (Steps 1.1–1.6)?

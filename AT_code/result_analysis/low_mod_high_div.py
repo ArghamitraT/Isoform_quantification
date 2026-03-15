@@ -49,6 +49,46 @@ Notes:
 from util import ExperimentFileProcessor
 import os
 import generate_result_stat as result_process
+import pickle
+import pandas as pd
+
+
+def divide_ground_truth(filename):
+    ground_truth = pd.read_csv(filename, sep="\t")
+    sorted_gt = ground_truth.sort_values(by=['tpm'])
+
+    # Step 2: Get total number of items
+    n = len(sorted_gt)
+
+    # Step 3: Slice using iloc (positional index)
+    low = sorted_gt.iloc[:n//3]
+    med = sorted_gt.iloc[n//3:2*n//3]
+    high = sorted_gt.iloc[2*n//3:]
+
+    main_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/'
+    # filename=main_dir+'sample1_low.pkl'
+    # with open(filename, "wb") as f:
+    #     pickle.dump(low, f)
+
+    # filename=main_dir+'sample1_med.pkl'
+    # with open(filename, "wb") as f:
+    #     pickle.dump(med, f)
+
+    # filename=main_dir+'sample1_high.pkl'
+    # with open(filename, "wb") as f:
+    #     pickle.dump(high, f)
+    low.to_csv(main_dir + 'sample2_low.tsv', sep='\t', index=True)
+    med.to_csv(main_dir + 'sample2_med.tsv', sep='\t', index=True)
+    high.to_csv(main_dir + 'sample2_high.tsv', sep='\t', index=True)
+
+    print()
+
+    
+if __name__=="__main__":
+    groundTruth_filename = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/sample2_gt.tsv'
+    divide_ground_truth(groundTruth_filename)
+    print()
+
 
 def process_experiment_data(directory, experiment, data_type, file):
     # Initialize the file processor with the directory
@@ -136,41 +176,29 @@ def process_file_arr(file_arr, directory, experiment, exp_data, groundTruth_main
         
    
 if __name__ == "__main__":
-
-    # ==========================================================================
-    # CONFIG — edit these variables before running; do not edit below this block
-    # ==========================================================================
-
-    # Top-level directory where all experiment results are stored
+    
+    ######## parameters ##########
     main_result_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results'
-
-    # Timestamped subfolder for the experiment to analyse (exprmnt_YYYY_MM_DD__HH_MM_SS)
-    experiment_file = 'exprmnt_2025_01_21__14_38_46'
-
-    # 1 = simulation data, 0 = real PacBio data
+    experiment_file = 'exprmnt_2025_01_21__14_41_09'
     simulation = 1
-
-    # Experiment type: 1=single sample, 2=merged, 4=multi-sample+GD, 5=merged-multi+GD
-    experiment = 1
-
-    # Directory containing SIRV / simulation ground truth TSV files
-    groundTruth_main_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths'
-
-    # Map replica identifiers to ground truth filenames inside groundTruth_main_dir.
-    # Use "Ground_truth1"/"Ground_truth2" keys for simulation; add "PB_sample*" /
-    # "ill_sample*" keys for real data runs.
-    groundTruth_file = {
-        "Ground_truth1": "sample1_gt.tsv",
-        "Ground_truth2": "sample2_gt.tsv",
-    }
-
-    # ==========================================================================
-    # END CONFIG
-    # ==========================================================================
-
-    # Derive the output directory path from the config above (do not edit)
+    experiment = 4  # "Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
+    # file_arr  = ['output_Simulation_VIGD_token_10896541_sample1_file1_ds100num1aln01long_GDlr_0.01_AlphaInitial_1.0_EMround_25_2024_12_8_22_22_08.tsv']
     directory = os.path.join(main_result_dir, experiment_file, 'files/output_files/')
     file_arr  = os.listdir(directory)
+    groundTruth_main_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths'
+#     groundTruth_file = {
+#     "ill_sample1": "ill_sample1_gt.tsv",
+#     "ill_sample2": "ill_sample2_gt.tsv",
+#     "PB_sample1": "PB_sample1_gt.tsv",
+#     "PB_sample2": "PB_sample1_gt.tsv",  
+#     "Ground_truth1": "sample1_gt.tsv",
+#     "Ground_truth2": "sample2_gt.tsv",
+# }
+    groundTruth_file = {  
+    "Ground_truth1": "sample1_high.tsv",
+    "Ground_truth2": "sample2_high.tsv",
+}
+    ######## parameters ##########
 
     print(f"experiment {experiment}")
     # Call the function with experiment name and data type
@@ -183,3 +211,30 @@ if __name__ == "__main__":
 
     process_file_arr_allgroundTruth(file_arr, directory, experiment, exp_data, groundTruth_main_dir, groundTruth_file)
     # process_file_arr(file_arr, directory, experiment, exp_data, groundTruth_main_dir, groundTruth_file)
+
+# import pandas as pd
+# import pickle
+
+# def divide_ground_truth(filename):
+#     ground_truth = pd.read_csv(filename, sep="\t")
+#     sorted_gt = ground_truth.sort_values(by=['tpm'])
+
+#     # Step 2: Get total number of items
+#     n = len(sorted_gt)
+
+#     # Step 3: Slice using iloc (positional index)
+#     low = sorted_gt.iloc[:n//3]
+#     med = sorted_gt.iloc[n//3:2*n//3]
+#     high = sorted_gt.iloc[2*n//3:]
+
+#     main_dir = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/'
+#     low.to_csv(main_dir + 'sample2_low.tsv', sep='\t', index=True)
+#     med.to_csv(main_dir + 'sample2_med.tsv', sep='\t', index=True)
+#     high.to_csv(main_dir + 'sample2_high.tsv', sep='\t', index=True)
+
+#     print()
+
+    
+# if __name__=="__main__":
+#     groundTruth_filename = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/sample2_gt.tsv'
+#     divide_ground_truth(groundTruth_filename)

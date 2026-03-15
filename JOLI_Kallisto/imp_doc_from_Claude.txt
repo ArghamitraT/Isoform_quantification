@@ -1,0 +1,119 @@
+ Yes, you can debug kallisto's C++ EM. The easiest approach (equivalent to your Python breakpoints) is adding print statements to the source and recompiling. Here's how:
+
+  Option 1: Print-based debugging (recommended — easiest)
+
+  Find the EM loop in kallisto's source:
+
+● Bash(find /gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/kallisto -name "*.h" -o -name "*.cpp" | xargs grep -l "EMAlgorithm\|em_round\|t…)
+  ⎿  /gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/kallisto/src/H5Writer.cpp
+     /gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/kallisto/src/Bootstrap.h
+     /gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/kallisto/src/ProcessReads.cpp
+     … +5 lines (ctrl+o to expand)
+
+● Read 1 file (ctrl+o to expand)
+
+● I found something more important than the breakpoint question. Reading the C++ source reveals two critical algorithmic differences between LK and JK that explain the divergence.
+
+  Finding 1: Single-tx EC handling (MAJOR difference)
+
+  In the long-read path (PacBio), kallisto handles single-transcript ECs after the EM loop, not inside it (lines 351-356):
+
+  // AFTER the EM loop converges:
+  for (const auto& it : ecmapinv_) {
+      if (it.first.cardinality() == 1) {
+          alpha_[it.first.maximum()] += counts_[it.second];  // added POST-EM
+      }
+  }
+
+  But JK (debug_joli_em.py and em_algorithm.py) handles them inside every EM round:
+  if len(txs) == 1:
+      n[txs[0]] += cnt   # inside the loop, every round
+
+  This is a major algorithmic difference. In LK's long-read mode:
+  - EM only iterates on multi-tx ECs
+  - Single-tx counts are added raw (un-normalized) to alpha after convergence
+  - alpha_ ends up as raw expected counts, not probabilities
+
+  Finding 2: Effective lengths
+
+  In the constructor (line 45-46):
+  eff_lens_ = calc_eff_lens(index_.target_lens_, all_fl_means);
+  weight_map_ = calc_weights(tc_.counts, ecmapinv_, eff_lens_);
+
+  LK uses real transcript lengths from the index. JK uses uniform 1.0.
+
+  In the long-read path (lines 231-233), it only recomputes weight_map_, not eff_lens_ — so eff_lens stays as real lengths throughout.
+
+  ---
+  To answer your breakpoint question
+
+  You don't need a breakpoint — you can add std::cerr prints and recompile. The relevant spot for tracing alpha round-by-round would be around line 200 in the long-read branch. But more
+  importantly: you can now see the difference directly in the source without needing to run it.
+
+  The two root causes are clear:
+  1. Single-tx EC handling: post-EM in LK vs in-loop in JK
+  2. Effective lengths: real in LK vs uniform in JK
+
+  The fix for JK should move single-tx ECs out of the EM loop (match LK's long-read behavior). Let me check the current JK em_algorithm.py to confirm:
+
+● Read 1 file (ctrl+o to expand)
+
+● Now I have the complete picture. Here's the full diff between JK and LK:
+
+  ---
+  Three differences between JK and LK
+
+  Difference 1: Single-tx EC handling (CRITICAL)
+
+  LK (EMAlgorithm.h, long-read branch, lines 351-356):
+  - Single-tx ECs are skipped during the EM loop
+  - They are added once, after convergence, as raw counts: alpha_[t] += counts_[ec]
+  - alpha_ is therefore raw expected counts, not probabilities
+
+  JK (em_algorithm.py, _em_step(), line 200):
+  - np.add.at(n, self._single_tx_ids, self._single_ec_counts) — runs every round
+  - Single-tx counts are included in normalization: theta = n / total
+  - theta is always a proper probability vector
+
+  Difference 2: Normalization
+
+  - LK: no normalization during EM — alpha accumulates raw counts, rho (TPM) comes from compute_rho() via division by eff_len
+  - JK: normalizes every round — theta is always sum=1
+
+  Difference 3: Effective lengths
+
+  - LK: uses real transcript lengths from index (calc_eff_lens(target_lens_, all_fl_means))
+  - JK: uniform 1.0 (Phase 1 placeholder)
+
+  ---
+  What to fix
+
+  To make JK match LK's long-read behavior exactly, two changes are needed:
+
+  Fix A — Single-tx handling: Move single-tx ECs out of _em_step(), add them post-EM to the raw counts before TPM conversion.
+
+  Fix B — Effective lengths: Use real lengths from flens.txt (already in weights.py Phase 2 placeholder).
+
+  Do you want me to implement both fixes now?
+
+
+
+  The toy example runs cleanly. Let me walk you through what just happened.                                                                                                                    
+                                                                                                                                                                                               
+  ---                                                                                                                                                                                          
+  What happened in 1 round                                                                                                                                                                     
+                                                                                                                                                                                               
+  JK (single-tx in loop, eff_len=1):                                                                                                                                                           
+  - Round 1: EC 0 gives A += 30, EC 1 gives B += 10                                                                                                                                            
+  - EC 2 (multi-tx): split 50/50 because theta starts uniform → A += 30, B += 30
+  - n = [60, 40], normalize → theta = [0.6, 0.4]                                                                                                                                               
+  - After 51 rounds: theta = [0.75, 0.25] → TPM ≈ 750k / 250k                                                                                                                                  
+                                                                                                                                                                                               
+  LK (single-tx skipped, eff_len real):
+  - Round 1: EC 2 only. weights = [1/eff_len_A, 1/eff_len_B] = [0.5, 1.0]
+  - B gets more weight because A is longer → A gets 20, B gets 40
+  - After convergence: post-EM adds EC 0 (30→A) and EC 1 (10→B)
+  - alpha = [30, 70], rho = [15, 70], normalize → TPM ≈ 176k / 824k
+
+  The 76% difference comes from both causes combined. To isolate them, try setting EFF_LEN_LK = [1.0, 1.0] in the script's CONFIG — that shows you how much the single-tx handling alone
+  contributes.

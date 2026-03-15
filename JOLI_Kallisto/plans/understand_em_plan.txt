@@ -1,0 +1,102 @@
+Understanding JK vs LK EM — Step-by-step Study Plan
+======================================================
+Date: 2026-03-14
+
+Goal
+----
+Understand both EM implementations (JOLI-Kallisto / JK and lr-Kallisto / LK) from
+the ground up, then compare them concretely to identify and fix the divergence.
+
+Step 1: Understand bustools output (concrete vision)
+-----------------------------------------------------
+Files to read:
+  debug/small_test/extraction_log.txt    — human-readable table of 20 ECs + 28 transcripts
+  debug/small_test/matrix.ec             — EC definitions (compact re-indexed)
+  debug/small_test/count.mtx             — read count per EC
+  debug/small_test/transcripts.txt       — transcript names
+
+Key questions to answer:
+  - What is one row of matrix.ec? (ec_id <TAB> tx1,tx2,...)
+  - What does "count" in count.mtx mean? (# reads compatible with that EC)
+  - Which ECs are single-transcript vs multi-transcript in the small test?
+
+Step 2: Understand kallisto EM
+------------------------------
+File: kallisto/src/EMAlgorithm.h
+
+Read in this order:
+  1. Constructor (lines 26-48)
+       - alpha_  initialized to 1/num_trans (uniform)
+       - eff_lens_ computed from REAL transcript lengths
+       - weight_map_ computed from eff_lens_
+
+  2. run() — long-read branch (lines 224-357)
+       - Main loop: only processes multi-tx ECs
+       - Single-tx ECs are SKIPPED during the loop
+       - After loop: single-tx counts added ONCE (lines 351-356)
+       - Convergence: chcount == 0 and i > min_rounds
+
+  3. compute_rho() (lines 377-399)
+       - rho[t] = alpha[t] / eff_len[t]
+       - normalize: rho /= sum(rho)
+       - TPM = rho * 1e6
+
+Key insight: alpha_ in LK is RAW EXPECTED COUNTS, not probabilities.
+Normalization into TPM happens via eff_len division in compute_rho().
+
+Step 3: Understand JOLI EM
+--------------------------
+File: JOLI_Kallisto/em_algorithm.py
+
+Read in this order:
+  1. _preprocess()     — splits ECs into single-tx and multi-tx, builds flat arrays
+  2. _em_step()        — vectorized E+M step; single-tx included EVERY round
+  3. run()             — loop, convergence, zeroing
+
+File: JOLI_Kallisto/weights.py
+  - Phase 1: uniform eff_len = 1.0 (placeholder)
+  - Phase 2: real lengths from flens.txt (not yet implemented)
+
+File: JOLI_Kallisto/output_writer.py
+  - theta → TPM: rho[t] = theta[t]/eff_len[t], tpm = rho/sum(rho) * 1e6
+
+Key insight: theta in JK is NORMALIZED (sum=1) every round.
+Single-tx ECs contribute to every normalization step.
+
+Step 4: Compare — two concrete differences
+------------------------------------------
+
+| Aspect                  | LK (kallisto C++)                    | JK (JOLI Python)              |
+|-------------------------|--------------------------------------|-------------------------------|
+| Single-tx ECs           | Skipped in loop; added ONCE post-EM  | Included in every EM round    |
+| Effective lengths        | Real transcript lengths from index   | Uniform 1.0                   |
+| alpha/theta during loop  | Raw expected counts (not normalized) | Normalized probabilities      |
+
+Step 5: Toy example (2 transcripts, 3 ECs)
+------------------------------------------
+See: debug/toy_em_example.py
+Manually trace one round of:
+  - LK behavior (skip single-tx in loop, add post-EM, use eff_len)
+  - JK behavior (include single-tx in loop, normalize every round, eff_len=1)
+Compare the two final TPM vectors to see the magnitude of the difference.
+
+Step 6: Following kallisto output step-by-step
+----------------------------------------------
+Option A — Add cerr prints and recompile (recommended):
+  File: kallisto/src/EMAlgorithm.h
+  In the long-read loop body, uncomment or add:
+    std::cerr << "round " << i << " alpha[t] = " << alpha_[t] << std::endl;
+  Recompile:
+    cd kallisto/build && cmake .. && make -j4
+  Run with small test case and capture stderr.
+
+Option B — Instrument weights.h:
+  Add prints inside calc_weights() to see eff_len values per transcript.
+
+Option C — Dump alpha_ to a file after EM:
+  In run(), after the loop, write alpha_ values to a debug file.
+  Compare directly to JK's debug_em_log.txt.
+
+Key files to instrument:
+  kallisto/src/EMAlgorithm.h   — EM loop, single-tx handling, convergence
+  kallisto/src/weights.h       — eff_len computation (calc_eff_lens, calc_weights)

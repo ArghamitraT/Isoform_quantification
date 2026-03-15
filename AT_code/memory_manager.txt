@@ -1,0 +1,14 @@
+
+VI
+
+exp 4: 200 GB (~171 GB)        15 hrs
+exp 1: 10 GB (~2.6 GB) LR           1 hr
+        70 GB  (~51 GB) SR          3 hrs 
+exp 2: 
+
+
+MAP
+exp 4: 200 GB            15 hrs (30 epoch)
+exp 1: 30 GB (~26 GB) LR           3 hr
+        300 GB  (~291 GB) SR          18 hrs 
+exp 2: 

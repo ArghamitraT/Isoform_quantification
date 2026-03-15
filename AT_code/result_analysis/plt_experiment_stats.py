@@ -167,24 +167,36 @@ def plot_result_stats(final_result_dir, main_dir, experiment_file, columns_to_pl
 
 # Main function to run the entire process
 def main():
-    experiment_file = 'exprmnt_2024_12_16__16_42_03'
-    # "Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
-    experiment = 1
 
+    # ==========================================================================
+    # CONFIG — edit these variables before running; do not edit below this block
+    # ==========================================================================
 
+    # Top-level directory where all experiment results are stored
     main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results/'
-    
-    if experiment == 1 or experiment==2:
-        columns_to_plot = ['ELBO_sample_1', 'Convergence_sample_1', 'EM_convergence', 
-                            'Spearman_corr_theta1_alpha', 'Alpha_summation', 'EM_loop']
-    elif experiment == 4 :
-        columns_to_plot = ['ELBO_sample_1', 'ELBO_sample_2', 'Convergence_sample_1', 'Convergence_sample_2',
-                        'EM_convergence', 'Spearman_corr_theta1_theta2',
-                        'Spearman_corr_theta1_alpha', 'Spearman_corr_theta2_alpha', 'Alpha_summation', 'EM_loop']
 
-    
-    final_result_dir = os.path.join(main_dir, experiment_file, 'weights/') 
-    
+    # Timestamped subfolder for the experiment to plot (exprmnt_YYYY_MM_DD__HH_MM_SS)
+    experiment_file = 'exprmnt_2025_01_21__14_41_09'
+
+    # Experiment type: 1=single sample, 2=merged, 4=multi-sample+GD, 5=merged-multi+GD
+    # Controls which EM stat columns are plotted.
+    experiment = 4
+
+    # ==========================================================================
+    # END CONFIG
+    # ==========================================================================
+
+    # Select columns to plot based on experiment type (do not edit)
+    if experiment == 1 or experiment == 2:
+        columns_to_plot = ['ELBO_sample_1', 'Convergence_sample_1', 'EM_convergence',
+                           'Spearman_corr_theta1_alpha', 'Alpha_summation', 'EM_loop']
+    elif experiment == 4:
+        columns_to_plot = ['ELBO_sample_1', 'ELBO_sample_2', 'Convergence_sample_1', 'Convergence_sample_2',
+                           'EM_convergence', 'Spearman_corr_theta1_theta2',
+                           'Spearman_corr_theta1_alpha', 'Spearman_corr_theta2_alpha', 'Alpha_summation', 'EM_loop']
+
+    final_result_dir = os.path.join(main_dir, experiment_file, 'weights/')
+
     plot_result_stats(final_result_dir, main_dir, experiment_file, columns_to_plot, fig_generic_name="result_stats")
     plot_GDloss_stats(final_result_dir, main_dir, experiment_file, fig_generic_name="GDloss_stats")
 

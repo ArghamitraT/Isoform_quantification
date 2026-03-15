@@ -1,0 +1,188 @@
+Plan: Debug JK vs LK EM Output Mismatch                                                                                                                                                       
+                                                                                                                                                                                               
+ Context                                                                                                                                                                                       
+
+ Pre-EM inputs (count.mtx, matrix.ec, transcripts.txt) are confirmed identical between JK                                                                                                      
+ (JOLI-Kallisto, Python EM) and LK (lr-Kallisto, kallisto quant-tcc C++ EM) for the same sample.                                                                                               
+ Yet the final abundance.tsv outputs differ. Goal: isolate exactly where and why the EM outputs                                                                                                
+ diverge, using a small reproducible test case.                                                                                                                                                
+
+ Reference run pair:
+ - JK: exprmnt_2026_03_14__10_42_22/ds_52_furtherDownsampled
+ - LK: exprmnt_2026_03_14__10_43_29/ds_52_furtherDownsampled
+
+ ---
+ Step-by-step Debug Plan
+
+ Step 1 — Extract a small test case
+
+ Create JOLI_Kallisto/debug/extract_small_case.py
+
+ - Read the full count.mtx and matrix.ec from one run's output folder
+ - Pick the top 20 ECs by read count (ensures non-trivial EM behaviour)
+ - Write a minimal count.mtx and matrix.ec for just those 20 ECs, plus
+ the matching subset of transcripts.txt
+ - Also write a minimal run_info.json with the correct n_pseudoaligned
+ - Output folder: JOLI_Kallisto/debug/small_test/
+
+ This gives a tiny, reproducible dataset where both EMs can be run and
+ compared by hand.
+
+ ---
+ Step 2 — Run JK EM on small test case (verbose)
+
+ Modify or call em_algorithm.py in a debug script
+ JOLI_Kallisto/debug/debug_joli_em.py:
+
+ - Load the small test case via load_tcc.py + weights.py
+ - Run JoliEM.run() but print theta at every round (not just every 100)
+ - Also print the per-EC denominator and fractional assignments in round 1
+ - Write final abundance.tsv to debug/small_test/joli_abundance.tsv
+
+ No changes to production code — debug script only.
+
+ ---
+ Step 3 — Run kallisto quant-tcc on same small test case
+
+ From the shell, run kallisto quant-tcc on the small test case files:
+
+ KALLISTO="/gpfs/.../kallisto/build/src/kallisto"
+ $KALLISTO quant-tcc \
+     --long -P PacBio \
+     -t 4 \
+     debug/small_test/count.mtx \
+     -i /gpfs/.../new_index.idx \
+     -e debug/small_test/count.ec.txt \
+     -o debug/small_test/kallisto_out/
+
+ Then run mtx_to_tsv.py on the output to get readable TPM values.
+
+ ---
+ Step 4 — Direct numerical comparison
+
+ Create JOLI_Kallisto/debug/compare_small_em.py:
+
+ - Load joli_abundance.tsv and kallisto_out/abundance.tsv
+ - Join on transcript_id
+ - Print side-by-side: transcript_id | joli_tpm | kallisto_tpm | diff
+ - Report: max absolute diff, number of transcripts that differ by > 1%
+
+ This tells us how different and which transcripts diverge most.
+
+ ---
+ Step 5 — Investigate effective lengths (primary suspect)
+
+ The key question: does kallisto quant-tcc --long -P PacBio use uniform eff_len=1.0
+ (same as JK) or real transcript lengths?
+
+ Check by looking at the eff_length column in LK's abundance.tsv:
+ - If all 1.0 → eff_lens match, divergence is purely in EM iteration
+ - If real lengths → eff_lens differ, which changes both E-step weights and TPM
+
+ To check:
+ - LK produces matrix.abundance.tpm.mtx and matrix.abundance.mtx (est_counts matrix)
+ - Divide est_counts by total_reads → theta from kallisto
+ - Compute theta / tpm_vector to back-calculate eff_len that kallisto used
+ - Compare to 1.0
+
+ ---
+ Step 6 — Trace EM round-by-round if eff_lens match
+
+ If Step 5 shows eff_lens are both 1.0, compare EM iteration trajectories:
+
+ - Both start at theta = 1/N (uniform) — verify
+ - Print JK theta after round 1, 2, 5, 10, 50, convergence
+ - For kallisto, there is no per-round output, but we can compare final theta
+ - Check if JK converges to the same point as kallisto (just maybe slower/faster)
+
+ If they converge to different points with the same eff_lens and same inputs,
+ there is a bug in the E-step formula or the single-tx EC handling.
+
+ ---
+ Step 7 — Fix identified bug
+
+ Depending on what Step 4–6 reveals:
+
+ ┌─────────────────────────────┬──────────────────────────────────────────────────────┐
+ │           Finding           │                         Fix                          │
+ ├─────────────────────────────┼──────────────────────────────────────────────────────┤
+ │ eff_lens differ             │ Implement real eff_len in weights.py using flens.txt │
+ ├─────────────────────────────┼──────────────────────────────────────────────────────┤
+ │ Single-tx EC handling wrong │ Fix _em_step in em_algorithm.py                      │
+ ├─────────────────────────────┼──────────────────────────────────────────────────────┤
+ │ Normalization difference    │ Fix output_writer.py                                 │
+ ├─────────────────────────────┼──────────────────────────────────────────────────────┤
+ │ Convergence criteria off    │ Adjust constants in em_algorithm.py                  │
+ └─────────────────────────────┴──────────────────────────────────────────────────────┘
+
+ ---
+ Critical Files
+
+ ┌──────────────────────────────────┬──────────────────────────────────────────────┐
+ │               File               │                     Role                     │
+ ├──────────────────────────────────┼──────────────────────────────────────────────┤
+ │ JOLI_Kallisto/em_algorithm.py    │ JK EM — primary suspect                      │
+ ├──────────────────────────────────┼──────────────────────────────────────────────┤
+ │ JOLI_Kallisto/weights.py         │ Effective lengths — key for eff_len mismatch │
+ ├──────────────────────────────────┼──────────────────────────────────────────────┤
+ │ JOLI_Kallisto/output_writer.py   │ TPM formula                                  │
+ ├──────────────────────────────────┼──────────────────────────────────────────────┤
+ │ JOLI_Kallisto/load_tcc.py        │ Input parsing                                │
+ ├──────────────────────────────────┼──────────────────────────────────────────────┤
+ │ JOLI_Kallisto/run_lr_kallisto.sh │ Exact kallisto quant-tcc flags               │
+ ├──────────────────────────────────┼──────────────────────────────────────────────┤
+ │ JOLI_Kallisto/debug/             │ New debug folder (to create)                 │
+ └──────────────────────────────────┴──────────────────────────────────────────────┘
+
+ Reference data:
+ - Small test input: built from exprmnt_2026_03_14__10_42_22/ds_52_furtherDownsampled/
+ - LK comparison: exprmnt_2026_03_14__10_43_29/ds_52_furtherDownsampled/
+
+ ---
+ Verification
+
+ After the fix, run verify_pre_em_equivalence.sh to confirm pre-EM inputs still match,
+ then run compare_abundance_files.py on the final abundance files:
+
+ python JOLI_Kallisto/compare_abundance_files.py \
+     --file1 exprmnt_JK/ds_52_furtherDownsampled/abundance.tsv \
+     --file2 exprmnt_LK/ds_52_furtherDownsampled/abundance.tsv \
+     --outdir JOLI_Kallisto/debug/final_comparison/
+
+ Target: Pearson/Spearman ≥ 0.99 on shared transcripts (log1p TPM).
+
+
+
+ Here are the three commands to run in order:
+
+  Step 1 — Extract small test case:
+  conda activate Joli_kallisto
+  cd /gpfs/commons/home/atalukder/RNA_Splicing/code/JOLI_Kallisto
+  python debug/extract_small_case.py
+  This writes debug/small_test/count.mtx, matrix.ec, transcripts.txt, count.ec.txt, run_info.json, and extraction_log.txt.
+
+  ---
+  Step 2 — Run JOLI EM verbosely on the small test case:
+  python debug/debug_joli_em.py
+  This writes debug/small_test/debug_em_log.txt (full per-round theta trace) and debug/small_test/joli_abundance.tsv.
+
+  ---
+  Step 3 — Run kallisto quant-tcc on the same small test case:
+  KALLISTO="/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/kallisto/build/src/kallisto"
+  INDEX="/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/new_index.idx"
+
+  $KALLISTO quant-tcc \
+      --long -P PacBio -t 4 \
+      debug/small_test/count.mtx \
+      -i $INDEX \
+      -e debug/small_test/count.ec.txt \
+      -o debug/small_test/kallisto_out/
+
+  python mtx_to_tsv.py debug/small_test/kallisto_out/
+
+  ---
+  Step 4 — Compare the two outputs:
+  python debug/compare_small_em.py
+  This writes debug/small_test/compare_log.txt with side-by-side TPM values and back-calculated effective lengths.
+
+  Share the log outputs (extraction_log.txt, debug_em_log.txt, compare_log.txt) and we'll trace exactly where the divergence starts.

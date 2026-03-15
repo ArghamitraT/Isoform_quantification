@@ -50,7 +50,7 @@ def create_prg_file(python_file_path, prg_file_path, output_file_path, input_fil
             "cd $HOME\n" + \
             "source ~/.bashrc\n" + \
             "conda activate NanoCount_5\n" + \
-            f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0]} {input_file_names[1]} --sample2 {input_file_names[2]} {input_file_names[3]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process} --process_bam_required {process_bam_required}"
+            f"python {python_file_path} --data_folder {input_data_folder} --output_path {output_file_path} --sample1 {input_file_names[0][0]} {input_file_names[0][1]} --sample2 {input_file_names[1][0]} {input_file_names[1][1]} --alpha_initial {alpha_initial} --GD_lr {GD_lr} --max_em_rounds {EM_round} --load {load} --load_filename {load_filename} --experiment_num {experiment_num} --dirichlet_builtin {dirichlet_builtin} --EM_type {EM_type} --dirichlet_process {dirichlet_process} --process_bam_required {process_bam_required}"
 
         else:
             header = f"#!/bin/bash\n" + \
@@ -73,14 +73,10 @@ def copy_weights(desired_weight_path, to_be_saved_path ):
 
 def create_slurm_file(prg_file_path, job_name, slurm_file_path):
 
-    show_name = '_'.join(job_name.split('_')[1:])
-    show_name = f"{slurm_file_name}_{show_name}"
-
-
     header = f"#!/bin/bash\n" + \
     "##ENVIRONMENT SETTINGS; REPLACE WITH CAUTION\n" + \
     "##NECESSARY JOB SPECIFICATIONS\n" + \
-    f"#SBATCH --job-name={show_name}      #Set the job name to \"JobExample1\"\n" + \
+    f"#SBATCH --job-name={job_name}      #Set the job name to \"JobExample1\"\n" + \
     f"#SBATCH --time={hour}:45:00              #Set the wall clock limit \n" + \
     f"#SBATCH --mem={memory}G              \n" + \
     f"#SBATCH --cpus-per-task={nthred}                   \n" + \
@@ -114,12 +110,9 @@ weight_dir = create_job_dir(dir= data_dir_0, fold_name="weights")
 output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 
 """ Parameters: **CHANGE (AT)** """
-######### SIMULATION ##########
 # **** the first element should be LR, the second should be SR ****
-# samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_21_short'],
-#                       ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_01_short']]
-# samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_01_short',
-#                       'ds_100_num1_aln_21_long', 'ds_100_num1_aln_21_short']]
+samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_21_short'],
+                      ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_01_short']]
 # samples_file_names = [['ds_100_num1_aln_01_long', 'ds_100_num1_aln_01_short'],
 #                       ['ds_100_num1_aln_21_long', 'ds_100_num1_aln_21_short']]
 # samples_file_names = [['ds_100_num1_aln_01_long', 'NA'],
@@ -129,21 +122,6 @@ output_dir = create_job_dir(dir= data_dir, fold_name="output_files")
 # samples_file_names = [['ds_10_num1_aln_52_long', 'ds_100_num1_aln_02_short']]
 # samples_file_names = [['ds_10_num1_aln_52_long', 'NA'],
 #                        ['ds_10_num1_aln_51_long', 'NA']]
-
-######### REAL DATA ##########
-# samples_file_names = [['ds_10_num1_aln_51_long', 'NA'], 
-#                       ['ds_10_num1_aln_52_long', 'NA'],
-#                       ['ds_10_num1_aln_01_long', 'NA'],
-#                       ['ds_10_num1_aln_02_long', 'NA'],
-#                       ['ds_100_num1_aln_51_short', 'NA'],
-#                       ['ds_100_num1_aln_52_short', 'NA'],
-#                       ['ds_100_num1_aln_01_short', 'NA'],
-#                       ['ds_100_num1_aln_02_short', 'NA']]
-
-samples_file_names = [ ['ds_10_num1_aln_32_long', 'ds_100_num1_aln_52_short'],
-                      ['ds_10_num1_aln_31_long', 'ds_100_num1_aln_51_short']]
-
-
 other_script_names = ['EM_VIorMAP_GD_vector.py', 'DirichletOptimizer_vector.py', 'generate_bash.py', 'process_bam_files.py']
 name_arr = ['main_EM_VIorMAP_GD_vector.py']
 from_where_to_copy = "exprmnt_2024_08_10__02_05_36"
@@ -153,17 +131,16 @@ alpha_val_arr = [10000]
 GDlr_val_arr = [0.01]
 EM_round_arr = [30] 
 experiment_num = 4      #"Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
-slurm_file_name = 'exp4RealMAP'
 dirichlet_builtin = 0
-simulation = 0
+simulation = 1
 old_prg_file = 0
-hour=20
-memory=300 # GB
+hour=10
+memory=250 # GB
 nthred = 8 # number of CPU
-EM_type = 'MAP'  # "Inference canbe through VI or MAP"
+EM_type = 'VI'  # "Inference canbe through VI or MAP"
 dirichlet_process = 'theta' # "Dirichlet optimization canbe 'expectation_log_theta' or 'theta'"
 process_bam_required = 0
-readme_comment = f"conference experiment, exp4, real data, MAP, convergence 0.001, day 3, some experiments did not run. "
+readme_comment = f"conference experiment, exp4, simulation, VI"
 if simulation:
     input_data_folder = '/gpfs/commons/home/spark/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/pklfiles/'
     output_file_name = "output_Simulation_VIGD_token_"
@@ -173,7 +150,6 @@ else:
     output_file_name = "output_PacIllu_VIGD_token_"
 """ Parameters: **CHANGE (AT)** """ 
 
-# slurm_file_name = 'exp1RealMAPSR'
 
 def create_readme():
     name = os.path.join(data_dir, "readme")

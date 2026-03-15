@@ -696,15 +696,28 @@ def csv_row_parsing_exp5(simulation, pair):
 
 
 def main():
-    experiment_file = 'exprmnt_2025_01_21__17_25_37'
+
+    # ==========================================================================
+    # CONFIG — edit these variables before running; do not edit below this block
+    # ==========================================================================
+
+    # Top-level directory where all experiment results are stored
+    main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results'
+
+    # Timestamped subfolder for the experiment to analyse (exprmnt_YYYY_MM_DD__HH_MM_SS)
+    experiment_file = 'exprmnt_2025_02_20__12_19_16'
+
+    # 1 = simulation data, 0 = real PacBio data
     simulation = 0
-    # "Different experiment setup, 1: for 1 sample, 2 for merged, 4 for multisample, 5 for merged multisample"
+
+    # Experiment type: 1=single sample, 2=merged, 4=multi-sample+GD, 5=merged-multi+GD
     experiment = 4
 
+    # ==========================================================================
+    # END CONFIG
+    # ==========================================================================
 
-
-
-    main_dir = '/gpfs/commons/home/atalukder/RNA_Splicing/files/results'
+    # Derive output directory from config above (do not edit)
     directory = os.path.join(main_dir, experiment_file, 'files/output_files/')
     # paired_files, 2 types
     # type == 'replica': This will give you LR and SR file names with same replica, eg: lr_01_replica1+lr_01_replica2,

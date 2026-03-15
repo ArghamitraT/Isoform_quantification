@@ -1,0 +1,14 @@
+{
+  "n_targets": 218255,
+  "n_bootstraps": 0,
+  "n_processed": 286381,
+  "n_pseudoaligned": 196905,
+  "n_unique": 124404,
+  "p_pseudoaligned": 68.8,
+  "p_unique": 43.4,
+  "kallisto_version": "0.51.1",
+  "index_version": 13,
+  "k-mer length": 63,
+  "start_time": "Sat Mar 14 10:42:22 2026",
+  "call": "/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/kallisto/build/src/kallisto bus -x bulk -i /gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/new_index.idx -o /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/kallisto_output/ds_52_furtherDownsampled -t 32 --long --threshold 0.8 --unmapped /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/ds_52_furtherDownsampled.fastq"
+}
