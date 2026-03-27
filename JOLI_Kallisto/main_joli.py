@@ -27,7 +27,9 @@ Inputs:
   --eff_len_mode : "uniform" (Phase 1) | "kallisto" (Phase 2+)
   --max_em_rounds: max EM iterations (default: 10000)
   --min_rounds   : min EM iterations before convergence check (default: 50)
-  --em_type      : "plain" (Phase 1) | "MAP" (Phase 2) | "VI" (Phase 4)
+  --em_type           : "plain" (Phase 1) | "MAP" (Phase 2) | "VI" (Phase 4)
+  --convergence_mode  : "kallisto" (raw count threshold, matches lr-kallisto exactly) |
+                        "joli"     (normalized theta threshold, faster, for MAP/VI)
 
 Outputs:
   <output_dir>/abundance.tsv  : per-transcript quantification
@@ -43,8 +45,8 @@ import os
 import sys
 import time
 
-# Add JOLI_Kallisto directory to path for sibling module imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add core/ to path for library module imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))
 
 from load_tcc import load_tcc_data, load_flens
 from weights import compute_weights
@@ -55,12 +57,14 @@ from output_writer import write_abundance
 # ============================================================
 # CONFIG — default values for all CLI arguments; edit here or pass as flags
 # ============================================================
-DEFAULT_SAMPLE_DIR   = ""           # required; no default
+DEFAULT_SAMPLE_DIR   = "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/kallisto_output/toy"
 DEFAULT_OUTPUT_DIR   = ""           # defaults to sample_dir if empty
 DEFAULT_EFF_LEN_MODE = "uniform"    # "uniform" (Phase 1) | "kallisto" (Phase 2+)
 DEFAULT_MAX_EM_ROUNDS = 10000
 DEFAULT_MIN_ROUNDS    = 50
-DEFAULT_EM_TYPE       = "plain"     # "plain" | "MAP" | "VI"
+DEFAULT_EM_TYPE            = "plain"     # "plain" | "MAP" | "VI"
+DEFAULT_CONVERGENCE_MODE   = "kallisto"  # "kallisto" (raw count threshold, matches LK)
+                                         # "joli"     (normalized theta, faster, for MAP/VI)
 # ============================================================
 
 
@@ -76,7 +80,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--sample_dir", required=True,
+        "--sample_dir", default=DEFAULT_SAMPLE_DIR,
         help="Directory containing count.mtx, matrix.ec, transcripts.txt "
              "(output of bustools count)."
     )
@@ -103,6 +107,13 @@ def parse_args() -> argparse.Namespace:
         choices=["plain", "MAP", "VI"],
         help="EM mode. 'plain'=standard EM (Phase 1); 'MAP'=Dirichlet MAP (Phase 2); "
              "'VI'=variational inference (Phase 4)."
+    )
+    parser.add_argument(
+        "--convergence_mode", default=DEFAULT_CONVERGENCE_MODE,
+        choices=["kallisto", "joli"],
+        help="Convergence criterion. 'kallisto'=raw expected count threshold (matches "
+             "lr-kallisto exactly, recommended for plain EM comparison); "
+             "'joli'=normalized theta threshold (faster, recommended for MAP/VI)."
     )
     return parser.parse_args()
 
@@ -140,8 +151,9 @@ def main() -> None:
     print(f"  output_dir   : {output_dir}")
     print(f"  eff_len_mode : {args.eff_len_mode}")
     print(f"  em_type      : {args.em_type}")
-    print(f"  max_em_rounds: {args.max_em_rounds}")
-    print(f"  min_rounds   : {args.min_rounds}")
+    print(f"  max_em_rounds    : {args.max_em_rounds}")
+    print(f"  min_rounds       : {args.min_rounds}")
+    print(f"  convergence_mode : {args.convergence_mode}")
     print("=" * 60)
 
     # --- Step 1.1: Load TCC data ---
@@ -168,6 +180,7 @@ def main() -> None:
     em_result = em.run(
         max_em_rounds=args.max_em_rounds,
         min_rounds=args.min_rounds,
+        convergence_mode=args.convergence_mode,
     )
 
     print(f"\n[main_joli] EM finished: "

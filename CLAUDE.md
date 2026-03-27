@@ -1,13 +1,16 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+For detailed run instructions, script descriptions, and config references see **[experiments.md](experiments.md)**.
+
+---
 
 ## Project Overview
 
 Multi-sample RNA isoform quantification from long-read sequencing (PacBio/ONT). Two parallel workstreams:
 
-1. **`AT_code/`** — Existing custom EM algorithm (VI or MAP) with Bayesian Dirichlet hyperparameter optimization via gradient descent.
-2. **`JOLI_Kallisto/`** — Active development: merging the AT_code EM/VI approach with [lr-kallisto](https://github.com/pachterlab/kallisto) to make quantification faster. New code goes here.
+1. **`AT_code/`** — Custom EM algorithm (VI or MAP) with Bayesian Dirichlet hyperparameter optimization via gradient descent.
+2. **`JOLI_Kallisto/`** — Active development: merging the AT_code EM/VI approach with [lr-kallisto](https://github.com/pachterlab/kallisto) for faster quantification.
 
 ---
 
@@ -19,329 +22,95 @@ conda activate NanoCount_5
 
 - yml/txt: `AT_code/NanoCount_5.yml`, `AT_code/NanoCount_5.txt`
 - Key packages: PyTorch 2.3.1, Pyro-PPL 1.9.1, NanoCount 1.0.0, pysam 0.22.1, NumPy, SciPy, pandas, Matplotlib
-
-> Per global rules: new dependencies go in a new environment (e.g. `NanoCount_6`) with an incremented yml saved in `AT_code/`.
+- New dependencies → new environment `NanoCount_6`, saved as `AT_code/NanoCount_6.yml`.
 
 ---
 
-## AT_code — How to Run
+## AT_code — Summary
 
-### Architecture
-
-```
-BAM files
-  → process_bam_files.py       # Parse alignments → pickle dicts
-  → EM_VIorMAP_GD_vector.py    # Core EM (VI or MAP)
-      E-step: read-to-isoform assignment weights
-      M-step: update theta (isoform abundances)
-      Dirichlet opt: update alpha via GD (PyTorch, DirichletOptimizer_vector.py)
-  → TSV output files
-  → result_analysis/           # Downstream stats, correlation, plots
-```
-
-### Key files
+Pipeline: BAM → pickle (`process_bam_files.py`) → EM (`main_EM_VIorMAP_GD_vector.py`) → TSV outputs → analysis (`result_analysis/`).
 
 | File | Role |
 |------|------|
-| `AT_code/main_EM_VIorMAP_GD_vector.py` | Primary entry point |
-| `AT_code/EM_VIorMAP_GD_vector.py` | Core EM logic — VI or MAP, multi-sample |
-| `AT_code/DirichletOptimizer_vector.py` | PyTorch Dirichlet GD optimizer |
-| `AT_code/process_bam_files.py` | BAM → pickle conversion pipeline |
-| `AT_code/generate_bash.py` | Generates + submits SLURM batch jobs |
-| `AT_code/result_analysis/util.py` | `ExperimentFileProcessor` — parses output filenames via regex |
-| `AT_code/result_analysis/generate_result_stat.py` | Spearman/Pearson correlation vs. ground truth |
-| `AT_code/result_analysis/ThetaCorrWGrndTruth.py` | Compare theta estimates to SIRV ground truth |
-| `AT_code/result_analysis/plt_experiment_stats.py` | Plot EM convergence and GD loss trajectories |
-| `AT_code/simulation_code/simulation.py` | Synthetic data generation for algorithm validation |
+| `main_EM_VIorMAP_GD_vector.py` | Primary entry point |
+| `EM_VIorMAP_GD_vector.py` | Core EM logic |
+| `DirichletOptimizer_vector.py` | PyTorch Dirichlet GD optimizer |
+| `process_bam_files.py` | BAM → pickle |
+| `generate_bash.py` | SLURM batch job generator |
+| `result_analysis/generate_result_stat.py` | Spearman/Pearson vs. ground truth |
+| `result_analysis/ThetaCorrWGrndTruth.py` | Theta vs. SIRV ground truth |
+| `result_analysis/plt_experiment_stats.py` | EM convergence / GD loss plots |
+| `simulation_code/simulation.py` | Synthetic data generation |
+
+Experiment types (`--experiment_num`): `1`=single sample, `2`=merged, `4`=multi-sample+GD, `5`=merged-multi+GD.
+Output filenames parsed via `ExperimentFileProcessor` in `result_analysis/util.py`.
+
+> See [experiments.md](experiments.md) for full CLI flags, config tables, and step-by-step instructions.
 
 ---
 
-### 1. BAM → Pickle (pre-processing)
+## JOLI_Kallisto — Summary
 
-Converts BAM alignment files into pickle dicts used by the EM algorithm.
+Four pipelines available — choose based on what you need:
 
-```bash
-conda activate NanoCount_5
-cd AT_code
-python process_bam_files.py
-```
+| Pipeline | Entry point | When to use |
+|----------|-------------|-------------|
+| lr-kallisto baseline | `scripts/run_lr_kallisto.sh` | C++ EM, comparison baseline |
+| JOLI full (single-sample) | `scripts/run_joli_kallisto.sh` | bustools + Python EM, end-to-end |
+| JOLI EM only (single-sample) | `main_joli.py` | bustools output already exists |
+| JOLI multi-sample full pipeline | `scripts/run_multisample_joli.sh` | Phase 2: bustools + joint MAP EM |
+| JOLI multi-sample MAP EM only | `main_multisample_joli.py` | Phase 2: bustools output already exists |
 
-- Edit `process_bam_files.py` to set input BAM paths and output pickle directory before running.
-- Output: `.pkl` files in the specified output folder.
-
----
-
-### 2. EM Run — local / interactive
-
-Run the EM algorithm directly from the command line (no SLURM).
-
-```bash
-conda activate NanoCount_5
-cd AT_code
-python main_EM_VIorMAP_GD_vector.py \
-    --data_folder <pkl_files_dir> \
-    --output_path <output_path> \
-    --sample1 <file1> [<file2> ...] \
-    --sample2 <file1> [<file2> ...] \
-    --alpha_initial 1.0 \
-    --GD_lr 0.01 \
-    --max_em_rounds 30 \
-    --experiment_num <1|2|4|5> \
-    --EM_type <VI|MAP> \
-    --dirichlet_process <theta|expectation_log_theta> \
-    --process_bam_required <0|1>
-```
-
-**Experiment types:**
-| `--experiment_num` | Meaning |
-|--------------------|---------|
-| `1` | Single sample, no GD |
-| `2` | Two samples merged, no GD |
-| `4` | Multi-sample + Dirichlet GD |
-| `5` | Merged multi-sample + Dirichlet GD |
-
-**Key flags:**
-| Flag | Values | Notes |
-|------|--------|-------|
-| `--EM_type` | `VI` / `MAP` | Inference method |
-| `--dirichlet_process` | `theta` / `expectation_log_theta` | GD optimization target |
-| `--process_bam_required` | `0` / `1` | `1` = run BAM→pickle first; `0` = pkl files already exist |
-| `--load` | `0` / `1` | `1` = resume from a saved checkpoint |
-| `--load_filename` | path | Path to `.pkl` checkpoint; required when `--load 1` |
-
-**Quick trial with SIRV data:**
-```bash
-python main_EM_VIorMAP_GD_vector.py \
-    --data_folder ../SIRV_data/aln_E0/ \
-    --output_path /tmp/sirv_test/ \
-    --sample1 <sirv_file> --sample2 NA \
-    --experiment_num 1 --EM_type MAP \
-    --alpha_initial 1.0 --GD_lr 0.01 --max_em_rounds 10 \
-    --process_bam_required 0
-```
-
----
-
-### 3. EM Run — SLURM batch (multiple hyperparameter combinations)
-
-`generate_bash.py` generates one SLURM job per combination of samples × alpha × GD_lr × EM_rounds and submits them all.
-
-**Step 1 — edit the CONFIG block inside `AT_code/generate_bash.py`:**
-
-| Variable | What to set |
-|----------|-------------|
-| `samples_file_names` | List of sample pairs/groups (LR first, SR second) |
-| `alpha_val_arr` | List of `alpha_initial` values to sweep |
-| `GDlr_val_arr` | List of GD learning rates to sweep |
-| `EM_round_arr` | List of max EM round counts to sweep |
-| `experiment_num` | `1`, `2`, `4`, or `5` |
-| `EM_type` | `'VI'` or `'MAP'` |
-| `dirichlet_process` | `'theta'` or `'expectation_log_theta'` |
-| `simulation` | `1` for simulation data, `0` for real PacBio data |
-| `process_bam_required` | `0` (pkl already exists) or `1` |
-| `hour`, `memory`, `nthred` | SLURM resource limits |
-| `slurm_file_name` | Short label for the job name in SLURM |
-| `readme_comment` | Human-readable note logged in the results readme |
-
-**Step 2 — run:**
-```bash
-conda activate NanoCount_5
-cd AT_code
-python generate_bash.py
-```
-
-Generated `.sh` scripts land in:
-`/gpfs/commons/home/atalukder/RNA_Splicing/files/cluster_job_submission_files/`
-
-They are also submitted to SLURM automatically by the script (`sbatch` is called inside `gen_combination()`).
-
-**To resume from a checkpoint**, set `copy_needed = 1` and `from_where_to_copy = "exprmnt_<timestamp>"` before running.
-
----
-
-### 4. Result Analysis
-
-All analysis scripts are in `AT_code/result_analysis/`. Edit the config variables at the top of each script, then run directly.
-
-#### 4a. Correlation vs. ground truth — `generate_result_stat.py`
-
-Computes Spearman and Pearson correlation between EM estimates and ground truth across replicas.
-
-```bash
-conda activate NanoCount_5
-cd AT_code/result_analysis
-# Edit main_result_dir, experiment_file, simulation, experiment inside the script
-python generate_result_stat.py
-```
-
-#### 4b. Theta vs. SIRV ground truth — `ThetaCorrWGrndTruth.py`
-
-Compares theta estimates to SIRV spike-in ground truth values.
-
-```bash
-conda activate NanoCount_5
-cd AT_code/result_analysis
-# Edit main_result_dir, experiment_file, groundTruth_main_dir, groundTruth_file inside the script
-python ThetaCorrWGrndTruth.py
-```
-
-Key config variables:
-| Variable | Meaning |
-|----------|---------|
-| `main_result_dir` | Top-level results directory |
-| `experiment_file` | Timestamped subfolder name (`exprmnt_...`) |
-| `simulation` | `1` = simulation data, `0` = real data |
-| `experiment` | Experiment type (`1`, `2`, `4`, `5`) |
-| `groundTruth_main_dir` | Path to SIRV ground truth files |
-| `groundTruth_file` | Dict mapping sample IDs to ground truth filenames |
-
-#### 4c. EM convergence and GD loss plots — `plt_experiment_stats.py`
-
-Plots alpha/convergence/loss trajectories from saved `.pkl` stats files.
-
-```bash
-conda activate NanoCount_5
-cd AT_code/result_analysis
-# Edit final_result_dir, main_dir, experiment_file, fig_generic_name inside the script
-python plt_experiment_stats.py
-```
-
-Figures are saved to `<experiment_dir>/figures/`.
-
----
-
-### Output filename convention (AT_code)
+### Folder structure
 
 ```
-output_[PacIllu|Simulation]_VIGD_token_<hash>_sample<N>_file<idx>_ds<pct>num<id>aln<day><replica><len>_GDlr_<rate>_AlphaInitial_<alpha>_EMround_<rounds>_
+JOLI_Kallisto/
+├── core/                        # Library modules (not run directly)
+│   ├── load_tcc.py              #   bustools output → TCCData
+│   ├── weights.py               #   effective lengths + EC weights
+│   ├── em_algorithm.py          #   JoliEM: plain EM + MAP EM
+│   ├── output_writer.py         #   write abundance.tsv
+│   ├── dirichlet_optimizer.py   #   Adam optimizer for shared alpha
+│   ├── multi_sample_em.py       #   MultiSampleJoliEM: GD + per-sample MAP EM
+│   └── training_tracker.py      #   TrainingTracker: per-round metric collection
+├── scripts/                     # Executable pipeline scripts
+│   ├── run_joli_kallisto.sh         #   full single-sample pipeline
+│   ├── run_lr_kallisto.sh           #   lr-kallisto baseline pipeline
+│   ├── run_multisample_joli.sh      #   full multi-sample pipeline (bustools + MAP EM)
+│   ├── submit_joli_pipeline.sh      #   SLURM wrapper for run_joli_kallisto.sh
+│   ├── submit_lr_kallisto.sh        #   SLURM wrapper for run_lr_kallisto.sh
+│   └── submit_multisample_joli.sh   #   SLURM wrapper for run_multisample_joli.sh
+├── analysis/                    # Post-run analysis and plotting
+│   ├── compare_abundance_files.py   # Compare JK vs LK abundance.tsv
+│   ├── run_batch_comparison.py      # Batch comparison across experiment folders
+│   └── plot_training.py             # Training diagnostic figures from training_stats.pkl
+├── test/                        # Unit tests (run from JOLI_Kallisto/ root)
+│   ├── test_JolitoKallisto.py
+│   ├── test_em_algorithm.py
+│   ├── test_dirichlet_optimizer.py
+│   ├── test_multi_sample_em.py
+│   ├── test_main_multisample_joli.py
+│   ├── test_training_tracker.py
+│   └── test_helpers.py
+├── plans/                       # Design documents
+├── main_joli.py                 # Single-sample JOLI EM entry point
+├── main_multisample_joli.py     # Multi-sample MAP EM entry point (Phase 2)
+└── main_pipeline.py             # Full pipeline entry point
 ```
 
-Use `ExperimentFileProcessor` in `AT_code/result_analysis/util.py` to parse these — do not parse manually.
+### Key implementation notes
 
----
+- `core/` modules are imported by entry points via `sys.path.insert(0, .../core)` — no `__init__.py` needed.
+- Test files import from `../core` (not `..`); `test_main_multisample_joli.py` imports from `..` (root) for `main_multisample_joli`.
+- `convergence_mode="kallisto"` matches lr-kallisto exactly (raw count threshold + zeroing on raw alpha); `"joli"` uses normalized theta (faster, for MAP).
+- Multi-sample MAP EM: posterior mean M-step `theta = (n + alpha) / sum(n + alpha)`; shared `alpha` updated via Adam on `log_alpha`.
+- `main_multisample_joli.py` accepts CLI args (`--sample_dirs`, `--results_base`, all EM/GD params) that override CONFIG; used by `run_multisample_joli.sh` to pass cache dirs dynamically.
+- `TrainingTracker` records per-round metrics (GD loss, EM rounds, Spearman/Pearson inter-sample + theta-vs-alpha, alpha sum/entropy/change, nonzero transcripts); saved as `training_stats.pkl`; figures auto-generated to `figures/` via `plot_training.py`.
+- `save_code_snapshot()` uses `rglob` — captures files from all subdirs including `core/`.
 
-## JOLI_Kallisto — How to Run
+lr-kallisto base: `/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/`
 
-### Architecture
-
-```
-FASTQ/FASTA reads
-  → run_lr_kallisto.sh
-      kallisto bus       # align reads → output.bus
-      bustools sort      # sort .bus file
-      bustools count     # count matrix (count.mtx, count.ec.txt)
-      kallisto quant-tcc # EM quantification → abundance.tsv
-  → per-sample output subfolder
-```
-
-### Key files
-
-| File | Role |
-|------|------|
-| `JOLI_Kallisto/run_lr_kallisto.sh` | Full pipeline logic — local or SLURM compatible |
-| `JOLI_Kallisto/submit_lr_kallisto.sh` | Thin SLURM submission wrapper |
-
-### lr-kallisto reference files
-
-Base directory: `/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/`
-
-| File | Path |
-|------|------|
-| kallisto binary | `.../kallisto/build/src/kallisto` (v0.51.1) |
-| Index (new, used by pipeline) | `.../new_index.idx` |
-| Transcript-to-gene map | `.../t2g.txt` |
-| Transcriptome FASTA | `.../transcriptome.fasta` |
-| Simulation index | `.../sim_index` |
-
----
-
-### 1. Configure the pipeline
-
-Edit the **CONFIG section** at the top of `JOLI_Kallisto/run_lr_kallisto.sh`:
-
-| Variable | What to set |
-|----------|-------------|
-| `KALLISTO` | Full path to kallisto binary |
-| `BUSTOOLS` | `bustools` (if on PATH) or full path |
-| `INDEX_FILE` | Path to kallisto index |
-| `T2G_FILE` | Path to transcript-to-gene map |
-| `READ_TYPE` | `long` (PacBio/ONT) or `short` (paired Illumina) |
-| `THREADS` | CPU threads (default: 32) |
-| `THRESHOLD` | kallisto bus threshold (default: 0.8) |
-| `OUTPUT_BASE` | Base results directory (default: `/gpfs/.../files/results`) |
-| `SAMPLES` | Bash array of `"sample_name  reads_dir  reads_file"` entries |
-
-**Sample array format:**
-```bash
-# Long-read (single file per sample)
-SAMPLES=(
-    "sim2  /path/to/sim/reads/  PacBio.simulated.fasta"
-    "ds52  /path/to/real/reads/ ds_52.fastq"
-)
-
-# Short-read (paired: two files per sample)
-SAMPLES=(
-    "sample1  /path/to/reads/  R1.fastq  R2.fastq"
-)
-```
-
----
-
-### 2. Run locally
-
-```bash
-bash JOLI_Kallisto/run_lr_kallisto.sh
-```
-
-No SLURM required. The script creates the timestamped output folder and runs all samples sequentially.
-
----
-
-### 3. Run on SLURM
-
-**Option A — via wrapper (recommended):**
-```bash
-bash JOLI_Kallisto/submit_lr_kallisto.sh
-```
-
-The wrapper (`submit_lr_kallisto.sh`) pre-creates the timestamped output folder and calls `sbatch` with resource flags. Edit the CONFIG block inside `submit_lr_kallisto.sh` to change SLURM resources:
-
-| Variable | Default |
-|----------|---------|
-| `MEM` | `100G` |
-| `CPUS` | `32` |
-| `TIME` | `24:00:00` |
-| `MAIL_USER` | `atalukder@nygenome.org` |
-
-**Option B — direct sbatch:**
-```bash
-sbatch JOLI_Kallisto/run_lr_kallisto.sh
-```
-
-(SLURM `#SBATCH` headers inside `run_lr_kallisto.sh` are picked up automatically.)
-
----
-
-### Per-sample output layout
-
-```
-/gpfs/.../files/results/exprmnt_{timestamp}/
-├── experiment_description.log   # config dump + sample list
-├── running.log                  # combined stdout/stderr for all steps
-├── runtime.txt                  # total wall-clock time
-├── code_snapshot/
-│   └── run_lr_kallisto.sh       # exact copy of this script at run time
-├── {sample_name_1}/
-│   ├── output.bus               # raw bus file
-│   ├── sorted.bus               # sorted bus file
-│   ├── count.mtx                # TCC count matrix
-│   ├── count.ec.txt             # equivalence classes
-│   ├── transcripts.txt          # transcript list
-│   ├── abundance.tsv            # final isoform quantification
-│   └── run_info.json            # kallisto run metadata
-└── {sample_name_2}/
-    └── ...
-```
+> See [EXPERIMENTS.md](../EXPERIMENTS.md) for full CONFIG variables, run commands, CLI flags, and output layouts.
 
 ---
 
@@ -358,51 +127,38 @@ sbatch JOLI_Kallisto/run_lr_kallisto.sh
 
 ## Shared Output Format
 
-All results (AT_code and JOLI_Kallisto) save to:
-```
-/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmnt_{timestamp}/
-├── experiment_description.log   # config + what/why/expected outcome
-├── running.log                  # full stdout/stderr of the run
-├── best_checkpoint/             # model weights (AT_code: use --load 1 --load_filename to resume)
-├── results_summary.txt          # accuracy tables, key metrics
-├── runtime.txt                  # total wall-clock time
-└── code_snapshot/               # selective copy of the code folder (see rules below)
-```
+All results save to `/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exprmnt_{timestamp}/` containing:
+`experiment_description.log`, `running.log`, `best_checkpoint/`, `results_summary.txt`, `runtime.txt`, `code_snapshot/`.
 
-### Code snapshot rules
+`code_snapshot/` copies only `.py`, `.sh`, `.txt`, `.yml`, `.yaml` files — no data/binary assets.
 
-`code_snapshot/` must mirror the full directory structure of the code folder, but **only copy files with these extensions**:
-
-| Extension | Examples |
-|-----------|---------|
-| `.py` | all Python scripts |
-| `.sh` | all shell/SLURM scripts |
-| `.txt` | requirements, notes |
-| `.yml` / `.yaml` | conda environment files |
-
-**Do NOT copy** large or non-code files: `.pkl`, `.idx`, `.bam`, `.fastq`, `.fasta`, `.bus`, `.mtx`, `.log`, or any other data/binary assets. These are large and not needed for reproducibility.
-
-**Implementation** — bash:
-```bash
-find code/ \( -name "*.py" -o -name "*.sh" -o -name "*.txt" -o -name "*.yml" -o -name "*.yaml" \) \
-    | while read f; do
-        dest="code_snapshot/${f#code/}"
-        mkdir -p "$(dirname "$dest")"
-        cp "$f" "$dest"
-    done
-```
-Python (`save_code_snapshot()` in `utility.py`):
-```python
-SNAPSHOT_EXTS = {".py", ".sh", ".txt", ".yml", ".yaml"}
-for src in Path("code/").rglob("*"):
-    if src.suffix in SNAPSHOT_EXTS:
-        dest = run_dir / "code_snapshot" / src.relative_to("code/")
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
-```
+> See [experiments.md](experiments.md) for the full output tree and snapshot implementation.
 
 ---
 
 ## Utility Helpers
 
-Per global rules, a `utility.py` should exist providing `create_run_dir()`, `save_runtime()`, and `save_code_snapshot()`. Add this to `AT_code/` (for AT_code runs) and `JOLI_Kallisto/` (for kallisto-merged runs) as development progresses.
+`utility.py` (add to `AT_code/` and `JOLI_Kallisto/` as development progresses) must provide:
+- `create_run_dir()` — create timestamped output folder
+- `save_runtime(run_dir, elapsed_seconds)` — write `runtime.txt`
+- `save_code_snapshot(run_dir)` — copy code into `code_snapshot/`
+
+---
+
+## CRITICAL: Off-Limits Directories
+
+**NEVER read from, write to, modify, create, or delete any files in:**
+
+```
+/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/Simulation
+```
+
+This directory belongs to collaborator Shree Raghavendra and is **read-only reference material**. Treat it as untouchable — no edits, no new files, no deletions, no moves, ever.
+
+---
+
+## Simulations (`code/Simulations/`)
+
+A clean re-implementation of a 3-phase RNA-seq read simulation pipeline that generates synthetic reads for **Illumina**, **PacBio**, and **ONT** technologies. Based on the original pipeline in `data/Shree_stuff/Simulation/` (do not touch that folder).
+
+> Full reference documentation: [`code/Simulations/REFERENCE.md`](Simulations/REFERENCE.md)

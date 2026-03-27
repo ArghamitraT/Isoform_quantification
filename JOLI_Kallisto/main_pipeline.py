@@ -43,8 +43,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Add JOLI_Kallisto directory to path so we can import sibling modules
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add core/ to path for library module imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))
 
 from load_tcc import load_tcc_data  # Step 1.1 — data loader
 

@@ -27,7 +27,7 @@ set -euo pipefail
 JOB_NAME=lr_kallisto
 MEM=100G
 CPUS=32
-TIME=24:00:00
+TIME=10:00:00
 MAIL_USER=atalukder@nygenome.org
 MAIL_TYPE=END,FAIL
 

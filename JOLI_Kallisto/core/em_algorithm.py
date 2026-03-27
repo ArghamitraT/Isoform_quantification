@@ -54,7 +54,9 @@ from weights import WeightData
 
 TOLERANCE          = np.finfo(np.float64).tiny   # ~2.2e-308; floor for denominators
 ALPHA_LIMIT        = 1e-7    # transcripts below this × 0.1 are zeroed out
-ALPHA_CHANGE_LIMIT = 1e-2    # ignore transcripts below this abundance in convergence check
+ALPHA_CHANGE_LIMIT = 1e-2    # convergence threshold — interpreted differently per mode:
+                             #   "kallisto" mode: raw expected counts > 0.01  (matches C++ EM)
+                             #   "joli"    mode: normalized theta   > 0.01  (fast, for MAP/VI)
 ALPHA_CHANGE       = 1e-2    # 1% relative change threshold for convergence
 DEFAULT_MIN_ROUNDS = 50      # minimum EM iterations before convergence is checked
 
@@ -240,35 +242,89 @@ class JoliEM:
 
     def run(
         self,
-        max_em_rounds: int = 10000,
-        min_rounds: int    = DEFAULT_MIN_ROUNDS,
+        max_em_rounds: int      = 10000,
+        min_rounds: int         = DEFAULT_MIN_ROUNDS,
+        convergence_mode: str   = "kallisto",
+        alpha_prior: np.ndarray = None,
+        init_theta: np.ndarray  = None,
     ) -> EMResult:
         """
         Run EM until convergence or max_em_rounds, then zero small abundances.
 
-        Convergence criterion (matches kallisto EMAlgorithm.h exactly):
-          Count transcripts where:
-            theta_new[t] > ALPHA_CHANGE_LIMIT  AND
-            |theta_new[t] - theta[t]| / theta_new[t] > ALPHA_CHANGE
-          Stop when this count == 0 AND round > min_rounds.
+        Two convergence modes (set via convergence_mode):
 
-        After convergence, zero out small multi-tx abundances, then build alpha:
-          alpha = theta * total_multi_reads  +  single_tx_raw_counts
-        This matches kallisto's post-EM step where single-tx counts are added
-        directly to alpha_ without going through the EM fractional assignment.
+          "kallisto" (default for plain EM):
+            Matches kallisto EMAlgorithm.h exactly. The convergence threshold
+            ALPHA_CHANGE_LIMIT is applied to RAW expected counts (alpha = theta *
+            total_multi_reads), so even transcripts with tiny fractional counts
+            (> 0.01 reads) are monitored. This forces JK to run until ALL small
+            transcripts have truly converged, matching kallisto's isoform set.
+            Also runs one extra EM round after zeroing (finalRound mechanism from
+            kallisto), allowing reads to redistribute away from zeroed transcripts.
+
+          "joli" (recommended for MAP / VI):
+            Applies ALPHA_CHANGE_LIMIT to NORMALIZED theta (sums to 1). Only
+            transcripts with theta > 0.01 (> 1% of total reads) are monitored.
+            Converges faster. Small transcripts are left to the Dirichlet prior
+            in MAP/VI mode rather than being driven to zero by more EM rounds.
 
         Args:
-            max_em_rounds : int -- Maximum EM iterations (default: 10000).
-            min_rounds    : int -- Minimum iterations before convergence check (default: 50).
+            max_em_rounds    : int         -- Maximum EM iterations (default: 10000).
+            min_rounds       : int         -- Minimum iterations before convergence check
+                                             (default: 50).
+            convergence_mode : str         -- "kallisto" (raw count threshold, matches LK)
+                                             or "joli" (normalized theta threshold, faster).
+            alpha_prior      : np.ndarray  -- Optional Dirichlet concentration vector,
+                                             shape [n_transcripts]. When provided, the
+                                             M-step uses the posterior mean:
+                                               theta_new = (n + alpha) / sum(n + alpha)
+                                             instead of plain EM (n / sum(n)).
+                                             Pass None for plain EM (default).
+            init_theta       : np.ndarray  -- Optional starting theta, shape [n_transcripts].
+                                             When provided (e.g. carried over from a previous
+                                             GD round), EM starts from this theta instead of
+                                             uniform. Pass None to start from uniform (default).
 
         Returns:
             EMResult -- alpha (raw expected counts), n_rounds, converged.
         """
-        print(f"\n[JoliEM] Starting EM: max_rounds={max_em_rounds}, "
-              f"min_rounds={min_rounds}, n_transcripts={self.n_transcripts}")
+        if convergence_mode not in ("kallisto", "joli"):
+            raise ValueError(
+                f"convergence_mode must be 'kallisto' or 'joli', got '{convergence_mode}'"
+            )
 
-        # --- Initialization: uniform, matching kallisto's alpha_[i] = 1/num_targets ---
-        theta     = np.full(self.n_transcripts, 1.0 / self.n_transcripts,
+        # Validate alpha_prior shape if provided
+        if alpha_prior is not None:
+            if alpha_prior.shape != (self.n_transcripts,):
+                raise ValueError(
+                    f"alpha_prior shape {alpha_prior.shape} does not match "
+                    f"n_transcripts={self.n_transcripts}"
+                )
+
+        # Total multi-tx reads — needed for kallisto mode convergence check and
+        # for scaling theta back to raw counts at the end.
+        total_multi_reads = float(self._multi_ec_counts.sum()) if self._n_multi_ecs > 0 else 0.0
+
+        print(f"\n[JoliEM] Starting EM: max_rounds={max_em_rounds}, "
+              f"min_rounds={min_rounds}, convergence_mode={convergence_mode}, "
+              f"mode={'MAP(posterior_mean)' if alpha_prior is not None else 'plain'}, "
+              f"n_transcripts={self.n_transcripts}, "
+              f"total_multi_reads={total_multi_reads:.0f}, "
+              f"warm_start={'yes' if init_theta is not None else 'no'}")
+
+        # --- Initialization ---
+        # Use provided init_theta (warm-start from previous GD round) or uniform.
+        if init_theta is not None:
+            theta = init_theta.copy().astype(np.float64)
+            total_init = theta.sum()
+            if total_init > 0:
+                theta /= total_init     # re-normalize for safety
+            else:
+                theta = np.full(self.n_transcripts, 1.0 / self.n_transcripts,
+                                dtype=np.float64)
+        else:
+            # Uniform initialization — matches kallisto's alpha_[i] = 1/num_targets
+            theta = np.full(self.n_transcripts, 1.0 / self.n_transcripts,
                             dtype=np.float64)
         converged = False
 
@@ -276,20 +332,40 @@ class JoliEM:
             # One E+M step
             n = self._em_step(theta)
 
-            # M-step: normalize to get new theta
-            total = n.sum()
-            if total > 0:
-                theta_new = n / total
+            # M-step: posterior-mean EM (with Dirichlet prior) or plain EM
+            if alpha_prior is not None:
+                # Posterior mean: theta_new[t] = (n[t] + alpha[t]) / sum(n + alpha)
+                # Always valid (numerator >= 0) as long as alpha > 0.
+                numerator = n + alpha_prior
             else:
-                # No reads assigned — keep current theta (degenerate case)
+                numerator = n
+
+            total = numerator.sum()
+            if total > 0:
+                theta_new = numerator / total
+            else:
                 theta_new = theta.copy()
 
-            # Convergence check (matches kallisto exactly)
-            changed = int(np.sum(
-                (theta_new > ALPHA_CHANGE_LIMIT) &
-                (np.abs(theta_new - theta) / np.maximum(theta_new, TOLERANCE)
-                 > ALPHA_CHANGE)
-            ))
+            # --- Convergence check ---
+            if convergence_mode == "kallisto":
+                # Compare raw expected counts against 0.01 reads — matches kallisto C++.
+                # alpha_new[t] = theta_new[t] * total_multi_reads
+                # Monitor: alpha_new > 0.01  AND  |alpha_new - alpha_old| / alpha_new > 1%
+                alpha_new = theta_new * total_multi_reads
+                alpha_old = theta     * total_multi_reads
+                changed = int(np.sum(
+                    (alpha_new > ALPHA_CHANGE_LIMIT) &
+                    (np.abs(alpha_new - alpha_old) / np.maximum(alpha_new, TOLERANCE)
+                     > ALPHA_CHANGE)
+                ))
+            else:
+                # "joli" mode: compare normalized theta directly.
+                # Faster — only monitors transcripts with > 1% of total reads.
+                changed = int(np.sum(
+                    (theta_new > ALPHA_CHANGE_LIMIT) &
+                    (np.abs(theta_new - theta) / np.maximum(theta_new, TOLERANCE)
+                     > ALPHA_CHANGE)
+                ))
 
             theta = theta_new
 
@@ -307,21 +383,43 @@ class JoliEM:
         if not converged:
             print(f"[JoliEM] Reached max_em_rounds={max_em_rounds} without convergence.")
 
-        # Zero out very small multi-tx abundances on theta before scaling.
-        # Threshold ALPHA_LIMIT/10 = 1e-8 on normalized theta is equivalent to
-        # zeroing raw counts below ~1e-8 * total_multi_reads (matches kallisto).
-        n_zeroed = int(((theta > 0) & (theta < ALPHA_LIMIT / 10)).sum())
-        theta[theta < ALPHA_LIMIT / 10] = 0.0
+        # --- Zero small multi-tx abundances ---
+        if convergence_mode == "kallisto":
+            # Matches kallisto EMAlgorithm.h: threshold applied to RAW expected counts
+            # (alpha = theta * total_multi_reads), not normalized theta.
+            # Avoids over-zeroing on large samples where 1e-8 on theta = ~0.1 raw reads.
+            alpha_temp = theta * total_multi_reads
+            n_zeroed = int(((alpha_temp > 0) & (alpha_temp < ALPHA_LIMIT / 10)).sum())
+            theta[alpha_temp < ALPHA_LIMIT / 10] = 0.0
+        else:
+            # "joli" mode: threshold on normalized theta (faster, for MAP/VI)
+            n_zeroed = int(((theta > 0) & (theta < ALPHA_LIMIT / 10)).sum())
+            theta[theta < ALPHA_LIMIT / 10] = 0.0
         if n_zeroed:
             print(f"[JoliEM] Zeroed {n_zeroed} multi-tx transcripts below {ALPHA_LIMIT/10:.1e}")
 
-        # --- Build alpha: raw expected counts (matches kallisto alpha_ after run()) ---
-        # Scale multi-tx theta back to expected counts using total multi-tx reads.
-        total_multi_reads = float(self._multi_ec_counts.sum()) if self._n_multi_ecs > 0 else 0.0
+        # --- finalRound (kallisto mode only) ---
+        # Kallisto runs one extra EM round after zeroing so reads can redistribute
+        # away from the newly-zeroed transcripts (EMAlgorithm.h finalRound mechanism).
+        if convergence_mode == "kallisto":
+            n_final = self._em_step(theta)
+            total_final = n_final.sum()
+            if total_final > 0:
+                theta = n_final / total_final
+                # Apply raw-count zeroing again after redistribution
+                alpha_final = theta * total_multi_reads
+                n_zeroed_final = int(
+                    ((alpha_final > 0) & (alpha_final < ALPHA_LIMIT / 10)).sum()
+                )
+                theta[alpha_final < ALPHA_LIMIT / 10] = 0.0
+                print(f"[JoliEM] finalRound done. "
+                      f"Additional transcripts zeroed: {n_zeroed_final}")
+
+        # --- Build alpha: raw expected counts ---
+        # Scale multi-tx theta back to expected counts, then add single-tx raw counts.
         alpha = theta * total_multi_reads
 
         # Add single-tx raw counts post-convergence (Fix A).
-        # Each single-tx EC assigns its count deterministically to its one transcript.
         if len(self._single_tx_ids) > 0:
             np.add.at(alpha, self._single_tx_ids, self._single_ec_counts)
 

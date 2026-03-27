@@ -1,0 +1,216 @@
+================================================================================
+JOLI-Kallisto: Next Steps Plan
+Date: 2026-03-14
+================================================================================
+
+================================================================================
+WHERE WE ARE
+================================================================================
+
+Two pipelines:
+  LK = lr-kallisto:      run_lr_kallisto.sh  → kallisto's built-in quant-tcc EM
+  JK = JOLI-Kallisto:    run_joli_kallisto.sh → our Python EM (main_joli.py)
+
+Both pipelines share the same upstream steps (kallisto bus → bustools sort →
+bustools count), producing identical TCC input (count.mtx, matrix.ec,
+transcripts.txt, flens.txt). Only the EM step differs.
+
+We implemented two fixes to align JK's EM with kallisto's:
+  Fix A — Single-tx EC handling: exclude single-tx ECs from the EM loop;
+           add their raw counts post-convergence (matches kallisto EMAlgorithm.h).
+  Fix B — Effective lengths: use flens.txt (per-transcript effective lengths
+           pre-computed by kallisto) instead of uniform 1.0.
+
+Comparison runs (all on sample ds_52_furtherDownsampled):
+  LK experiment:          exprmnt_2026_03_14__10_43_29
+  JK uniform (pre-Fix B): exprmnt_2026_03_14__22_51_13
+  JK flens  (post-Fix B): exprmnt_2026_03_14__23_17_29
+
+================================================================================
+CURRENT RESULTS
+================================================================================
+
+Metric                     LK vs JK-uniform    LK vs JK-flens
+--------------------------  ------------------  ------------------
+Shared transcripts          48,659              48,659
+Jaccard ID overlap          0.223               0.223
+Shared raw Pearson          0.9993              0.895
+Shared raw Spearman         0.9935              0.770
+JS distance (log1p union)   0.079               0.345
+
+Key observations:
+  1. JK-uniform (Fix A only) achieves near-perfect correlation on shared
+     transcripts (Pearson 0.9993, Spearman 0.9935). Fix A works correctly.
+
+  2. Fix B (flens.txt) DEGRADED correlation significantly (Spearman 0.993→0.770).
+     Something is wrong with how we apply flens.txt in the EM.
+
+  3. Jaccard overlap is only 0.223 in BOTH modes. This means ~78% of non-zero
+     transcripts are unique to one pipeline. This problem existed before Fix B
+     and is not caused by it. It means LK and JK disagree on which transcripts
+     to assign non-zero abundance.
+
+================================================================================
+PROBLEM 1 (HIGH PRIORITY): FIX B DEGRADES CORRELATION
+================================================================================
+
+Symptom:
+  After applying flens.txt as effective lengths, Spearman drops from 0.993 to
+  0.770 on the 48,659 shared transcripts.
+
+Hypothesis:
+  Sentinel values in flens.txt (UINT32_MAX = 4294967295) for unobserved
+  transcripts cause numerical issues in the EM. When weight = 1/4294967295 ≈ 0,
+  those transcripts should be suppressed — but something may be going wrong.
+
+  Alternatively, the effective lengths from flens.txt differ substantially from
+  the uniform=1.0 assumption, and the TPM rescaling is amplifying or suppressing
+  the wrong transcripts.
+
+What to investigate:
+  a. Check flens.txt values:
+     - How many sentinel values (= 4294967295)?
+     - Distribution of non-sentinel values (min, max, median)?
+     - Are any effective lengths 0 or negative?
+
+  b. Check EM behavior with flens.txt:
+     - After EM convergence, how many transcripts have alpha > 0?
+     - How does the set of non-zero transcripts compare to LK's?
+     - Are sentinel transcripts leaking into the output?
+
+  c. Compare TPM output directly:
+     - Do the 48,659 shared transcripts have the same TPM ranking order?
+     - Is the degradation in absolute values or in ranking?
+
+  d. Check if the issue is in the EM weights or in the TPM formula:
+     - Run JK with flens.txt but check raw alpha (est_counts) correlation
+       separately from TPM correlation. If alpha is fine but TPM is wrong,
+       the issue is in output_writer.py's rho/TPM formula.
+     - If alpha is already wrong, the issue is in the EM weights.
+
+Action steps:
+  1. Add diagnostic print to main_joli.py:
+       print(f"flens stats: min={flens.min()}, max={flens[flens<4e9].max()},
+               n_sentinel={sum(flens>=4e9)}")
+  2. Print alpha stats after EM:
+       print(f"alpha: nonzero={sum(alpha>0)}, max={alpha.max():.2f},
+               sum={alpha.sum():.2f}")
+  3. Run compare_abundance_files.py specifically on est_counts column (not TPM)
+     to isolate whether problem is in EM or in TPM formula.
+  4. Inspect a few specific transcripts where LK has high TPM but JK does not
+     (or vice versa) — check their flens values.
+
+================================================================================
+PROBLEM 2 (HIGH PRIORITY): LOW JACCARD OVERLAP (0.223)
+================================================================================
+
+Symptom:
+  Only 22.3% of non-zero transcripts overlap between LK and JK in both uniform
+  and flens modes. LK has many transcripts JK zeros out, or vice versa.
+
+  Total non-zero transcripts:
+    LK:  likely ~X transcripts
+    JK:  likely ~Y transcripts
+    Overlap: 48,659
+
+  (Need to check exact counts — run: wc -l on each abundance.tsv and count
+   non-zero TPM rows.)
+
+Hypothesis:
+  a. LK's quant-tcc always uses real effective lengths from flens.txt internally,
+     even in "uniform" JK mode. This shifts which transcripts receive non-zero
+     weight in the EM. Different weight → different set of transcripts above the
+     zeroing threshold.
+
+  b. The zeroing threshold may differ between kallisto and JK:
+     - kallisto: zeros transcripts with alpha < ALPHA_LIMIT * 0.1 * total_reads
+       (i.e., < 1e-7 * 0.1 * total_reads = 1e-8 * total_reads)
+     - JK: zeros theta < 1e-8 before scaling → equivalent to alpha < 1e-8 * total_multi_reads
+     These are nearly the same, but small differences in total_reads vs
+     total_multi_reads could shift which transcripts survive.
+
+  c. LK's quant-tcc may use a different convergence criterion or more EM rounds,
+     leading to different final theta values near the zeroing threshold.
+
+What to investigate:
+  a. Count non-zero transcripts in each abundance.tsv:
+       awk 'NR>1 && $5>0' abundance.tsv | wc -l   (col 5 = tpm)
+     Do this for LK and JK to know the full picture.
+
+  b. Look at the transcripts unique to LK (non-zero in LK, zero in JK):
+     - What is their TPM range in LK? Are they very low TPM transcripts near
+       the zeroing threshold?
+     - What is their estimated count (est_counts) in LK?
+     - Are they multi-tx or single-tx ECs?
+
+  c. Look at transcripts unique to JK:
+     - Same questions.
+     - Is JK leaking counts into transcripts that LK zeros out?
+
+  d. Check kallisto source for exact zeroing threshold:
+     In EMAlgorithm.h, the zeroing step after convergence:
+       for i in transcripts:
+         if alpha[i] < alpha_limit * 0.1:  alpha[i] = 0
+     where alpha_limit = 1e-7 and alpha here is NORMALIZED (sums to 1 before
+     adding single-tx). Check if this is what we implement.
+
+  e. Run EM with a stricter zeroing threshold (e.g., 1e-6 instead of 1e-8)
+     and see if Jaccard improves.
+
+Action steps:
+  1. Count non-zero transcripts in each TSV:
+       awk 'NR>1 && $5>0' LK/abundance.tsv | wc -l
+       awk 'NR>1 && $5>0' JK/abundance.tsv | wc -l
+  2. Extract transcripts unique to LK and unique to JK. Look at their TPM
+     distribution (histogram). If they cluster near 0, it's a threshold issue.
+  3. Read kallisto EMAlgorithm.h source carefully — confirm exact zeroing
+     threshold formula and where it's applied (before or after adding single-tx).
+  4. Align JK zeroing threshold exactly to kallisto's.
+
+================================================================================
+PROBLEM 3 (MEDIUM PRIORITY): VERIFY FIX A IS CORRECT END-TO-END
+================================================================================
+
+Fix A is already working (Spearman 0.9993 on shared transcripts). But:
+
+  - We know Jaccard is 0.223. Is Fix A causing any of that?
+  - The single-tx raw counts are added AFTER the zeroing step. Kallisto does
+    the same. But does kallisto apply any zeroing to single-tx counts separately?
+  - Verify: in LK output, do single-tx transcripts show exactly their raw read
+    count as est_counts? Check a few known single-tx transcripts.
+
+================================================================================
+RECOMMENDED ORDER OF ATTACK
+================================================================================
+
+Step 1: Diagnose Problem 2 (Jaccard)
+  - Count non-zero transcripts in LK and JK (uniform mode, since that has
+    good correlation and isolates the Jaccard issue).
+  - Determine if the extra transcripts are near the zeroing threshold.
+  - This tells us if Jaccard can be fixed by adjusting the threshold.
+
+Step 2: Diagnose Problem 1 (Fix B degradation)
+  - Check flens.txt sentinel handling.
+  - Compare est_counts (not TPM) to isolate EM vs TPM formula.
+  - If sentinel transcripts are leaking, fix weights.py to zero them.
+
+Step 3: Fix and re-run
+  - Once both problems are understood, implement fixes and re-run JK.
+  - Target: Jaccard > 0.90, Spearman > 0.99, Pearson > 0.999.
+
+Step 4: Run on more samples
+  - Once a single sample passes, run the full multi-sample comparison.
+
+================================================================================
+EXPERIMENTS RUN SO FAR (reference)
+================================================================================
+
+exprmnt_2026_03_14__10_43_29  → LK (lr-kallisto, quant-tcc EM), sample ds_52
+exprmnt_2026_03_14__22_51_13  → JK (Fix A only, uniform eff_lens), sample ds_52
+exprmnt_2026_03_14__23_17_29  → JK (Fix A + Fix B / flens.txt), sample ds_52
+
+Comparison outputs:
+  /gpfs/.../files/results/compare_LK_vs_JK_uniform/  (LK vs JK-uniform)
+  /gpfs/.../files/results/compare_LK_vs_JK_kallisto/ (LK vs JK-flens)
+
+================================================================================

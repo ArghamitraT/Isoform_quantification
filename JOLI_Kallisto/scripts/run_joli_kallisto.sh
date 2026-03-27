@@ -61,15 +61,28 @@ OUTPUT_BASE="/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
 # --- JOLI EM settings ---
 MAX_EM_ROUNDS=10000
 MIN_ROUNDS=50
-EFF_LEN_MODE="uniform"   # "uniform" (Phase 1) | "kallisto" (Phase 2+)
+EFF_LEN_MODE="uniform"     # "uniform" (Phase 1) | "kallisto" (Phase 2+)
+                           # NOTE: kallisto quant-tcc --long uses uniform weights internally
+                           # (no fragment-length distribution available for long reads).
+                           # JK must match this or correlation drops from ~0.99 to ~0.89.
 EM_TYPE="plain"           # "plain" | "MAP" | "VI"
 
 # --- Samples ---
 # Format (long-read):  "sample_name  reads_dir  reads_file"
 # Format (short-read): "sample_name  reads_dir  R1_file  R2_file"
 SAMPLES=(
-    "ds_52_furtherDownsampled  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  ds_52_furtherDownsampled.fastq"
+    # "toy  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  toy.fastq"
+    
+    # "toy_11reads  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  toy_11reads.fastq"
+    # "ds_52_furtherDownsampled  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  ds_52_furtherDownsampled.fastq"
     # "sim2  /path/to/sim/reads  PacBio.simulated.fasta"
+    "flnc_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
+    # "flnc_02  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
+    # "flnc_03  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_03.fastq"
+    # "flnc_31  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_31.fastq"
+    # "flnc_32  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_32.fastq"
+    
+    
 )
 
 # ============================================================
@@ -77,11 +90,6 @@ SAMPLES=(
 # ============================================================
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-# Fix GLIBCXX version mismatch: prefer conda's bundled libstdc++ over system one
-if [[ -n "${CONDA_PREFIX:-}" ]]; then
-    export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
-fi
 
 # Resolve Python interpreter from conda env if not set
 if [[ -z "$PYTHON" ]]; then
@@ -92,11 +100,22 @@ if [[ -z "$PYTHON" ]]; then
     fi
 fi
 
+# Fix GLIBCXX version mismatch: use the *conda env's* libstdc++, not the base env.
+# Derive the env prefix from the resolved PYTHON path (e.g. .../envs/Joli_kallisto/bin/python
+# → .../envs/Joli_kallisto/lib).
+CONDA_ENV_LIB="$(dirname "$(dirname "${PYTHON}")")/lib"
+if [[ -d "${CONDA_ENV_LIB}" ]]; then
+    export LD_LIBRARY_PATH="${CONDA_ENV_LIB}:${LD_LIBRARY_PATH:-}"
+fi
+
 # ---- Create timestamped result directory ----
 TIMESTAMP="exprmnt_$(date +%Y_%m_%d__%H_%M_%S)"
 RUN_DIR="${OUTPUT_BASE}/${TIMESTAMP}"
 mkdir -p "${RUN_DIR}"
 LOG="${RUN_DIR}/running.log"
+
+# First line of every running.log: which script produced this log
+echo "Script: $(realpath "$0")" > "${LOG}"
 
 echo "============================================================" | tee -a "${LOG}"
 echo "JOLI-Kallisto pipeline: ${TIMESTAMP}"                          | tee -a "${LOG}"
@@ -137,7 +156,7 @@ EOF
 SNAPSHOT_DIR="${RUN_DIR}/code_snapshot"
 mkdir -p "${SNAPSHOT_DIR}"
 for ext in py sh txt yml yaml; do
-    find "${SCRIPT_DIR}" -maxdepth 1 -name "*.${ext}" -exec cp {} "${SNAPSHOT_DIR}/" \;
+    find "${SCRIPT_DIR}/.." -name "*.${ext}" -exec cp {} "${SNAPSHOT_DIR}/" \;
 done
 echo "Code snapshot saved to: ${SNAPSHOT_DIR}" | tee -a "${LOG}"
 
@@ -296,7 +315,7 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
 
     # ---- Step 4: JOLI EM ----
     echo "Step 4: JOLI EM (main_joli.py)" | tee -a "${LOG}"
-    "${PYTHON}" "${SCRIPT_DIR}/main_joli.py" \
+    "${PYTHON}" "${SCRIPT_DIR}/../main_joli.py" \
         --sample_dir    "${CACHE_DIR}" \
         --output_dir    "${SAMPLE_RESULT_DIR}" \
         --eff_len_mode  "${EFF_LEN_MODE}" \

@@ -91,8 +91,13 @@ OUTPUT_BASE=/gpfs/commons/home/atalukder/RNA_Splicing/files/results
 # Comment out any sample you do not want to run.
 SAMPLES=(
     # "sim2  /gpfs/commons/home/sraghavendra/Simulation/lrgasp-simulation/sim_result_2/human_simulated_job_correct/  PacBio.simulated.fasta"
-    "ds_52_furtherDownsampled  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/ds_52_furtherDownsampled.fastq"
-)
+    # "ds_52_furtherDownsampled  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/ds_52_furtherDownsampled.fastq"
+    "flnc_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
+    # "flnc_02  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
+    # "flnc_03  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_03.fastq"
+    # "flnc_31  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_31.fastq"
+    # "flnc_32  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_32.fastq"
+    )
 
 # =============================================================================
 # END CONFIG
@@ -108,6 +113,9 @@ mkdir -p "${RUN_DIR}"
 
 LOG="${RUN_DIR}/running.log"
 EXPERIMENT_LOG="${RUN_DIR}/experiment_description.log"
+
+# First line of every running.log: which script produced this log
+echo "Script: $(realpath "$0")" > "${LOG}"
 
 # Start wall-clock timer
 RUN_START=$(date +%s)

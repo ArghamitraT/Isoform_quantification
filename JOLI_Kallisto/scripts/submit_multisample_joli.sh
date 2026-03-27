@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# submit_joli_pipeline.sh
-# =======================
-# Thin SLURM wrapper for run_joli_kallisto.sh.
-# All pipeline logic and sample config lives in run_joli_kallisto.sh.
+# submit_multisample_joli.sh
+# ==========================
+# Thin SLURM wrapper for run_multisample_joli.sh.
+# All pipeline logic and sample config lives in run_multisample_joli.sh.
 #
 # Usage:
-#   bash submit_joli_pipeline.sh           # submit to SLURM cluster
-#   bash run_joli_kallisto.sh              # run locally (standard)
-#   python main_joli.py --sample_dir ...  # run JOLI EM only (breakpoints)
+#   bash submit_multisample_joli.sh        # submit to SLURM cluster
+#   bash run_multisample_joli.sh           # run locally (no SLURM)
+#   python main_multisample_joli.py ...    # run MAP EM only (bustools output exists)
 
 # ============================================================
-# CONFIG — SLURM resources only; edit pipeline config in run_joli_kallisto.sh
+# CONFIG — SLURM resources only; edit pipeline config in run_multisample_joli.sh
 # ============================================================
-JOB_NAME="joli_pipeline"
+JOB_NAME="joli_multisample"
 MEM="100G"
 CPUS=32
 TIME="24:00:00"
 MAIL_USER="atalukder@nygenome.org"
 MAIL_TYPE="END,FAIL"
-CONDA_ENV="NanoCount_5"
+CONDA_ENV="Joli_kallisto"
 # ============================================================
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PIPELINE_SCRIPT="${SCRIPT_DIR}/run_joli_kallisto.sh"
+PIPELINE_SCRIPT="${SCRIPT_DIR}/run_multisample_joli.sh"
 
-echo "Submitting JOLI-Kallisto pipeline to SLURM..."
+echo "Submitting JOLI multi-sample pipeline to SLURM..."
 echo "  Pipeline script: ${PIPELINE_SCRIPT}"
 echo "  Conda env:       ${CONDA_ENV}"
 echo "  Resources:       ${CPUS} CPUs, ${MEM} RAM, ${TIME} time limit"

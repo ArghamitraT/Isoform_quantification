@@ -33,8 +33,8 @@ import tempfile
 
 import numpy as np
 
-# Add JOLI_Kallisto directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add core/ to path for library module imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core"))
 from load_tcc import load_tcc_data, TCCData
 from weights import compute_weights, WeightData
 from em_algorithm import JoliEM, EMResult
