@@ -65,7 +65,7 @@ OUTPUT_BASE="/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
 EFF_LEN_MODE="uniform"     # "uniform" | "kallisto"
 CONVERGENCE_MODE="joli"    # "joli" (recommended for MAP) | "kallisto"
 MAX_EM_ROUNDS=10000
-MIN_EM_ROUNDS=50
+MIN_EM_ROUNDS=1
 MAX_GD_ROUNDS=500
 GD_LR=0.01
 ALPHA_INITIAL=1.0
@@ -77,8 +77,12 @@ GD_STEPS_PER_ROUND=10
 # Format (short-read): "sample_name  reads_dir  R1_file  R2_file"
 # Minimum 2 samples required for multi-sample MAP EM.
 SAMPLES=(
-    "flnc_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
-    "flnc_02  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
+    # "flnc_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
+    # "flnc_02  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
+    # "ds_52_furtherDownsampled_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/  ds_52_furtherDownsampled.fastq"
+    # "ds_52_furtherDownsampled_02  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/  ds_52_furtherDownsampled.fastq"
+    "sim1  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
+    "sim2  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
 )
 
 # ============================================================
@@ -168,7 +172,8 @@ fi
 # Collect cache dirs for passing to main_multisample_joli.py
 # ============================================================
 ERRORS=()
-CACHE_DIRS=()   # will be passed as --sample_dirs to the Python script
+CACHE_DIRS=()    # will be passed as --sample_dirs to the Python script
+SAMPLE_NAMES=()  # will be passed as --sample_names to the Python script
 
 for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
     read -r SAMPLE_NAME READS_DIR READS_FILE1 <<< "${SAMPLE_ENTRY}"
@@ -256,6 +261,7 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
     fi
 
     CACHE_DIRS+=("${CACHE_DIR}")
+    SAMPLE_NAMES+=("${SAMPLE_NAME}")
 done
 
 # ---- Fail fast if any bustools step failed ----
@@ -288,6 +294,7 @@ echo "Step 4: Multi-sample MAP EM (main_multisample_joli.py)" | tee -a "${PREP_L
 
 "${PYTHON}" "${SCRIPT_DIR}/../main_multisample_joli.py" \
     --sample_dirs       "${CACHE_DIRS[@]}" \
+    --sample_names      "${SAMPLE_NAMES[@]}" \
     --results_base      "${OUTPUT_BASE}" \
     --eff_len_mode      "${EFF_LEN_MODE}" \
     --convergence_mode  "${CONVERGENCE_MODE}" \

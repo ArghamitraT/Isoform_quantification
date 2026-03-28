@@ -66,6 +66,11 @@ class WeightData:
     eff_lens: np.ndarray
     ec_weights: list
 
+    def __repr__(self) -> str:
+        n_tx = len(self.eff_lens) if self.eff_lens is not None else 0
+        n_ec = len(self.ec_weights) if self.ec_weights is not None else 0
+        return f"WeightData(n_transcripts={n_tx}, n_ecs={n_ec})"
+
 
 # ============================================================
 # Effective length computation

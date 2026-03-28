@@ -1,18 +1,22 @@
 """
 run_batch_comparison.py
 =======================
-Run compare_abundance_files.py for every sample across two experiment folders.
-
-Use this after running both pipelines (e.g. run_joli_kallisto.sh and
-run_lr_kallisto.sh) to compare their outputs sample-by-sample in one go.
+Run compare_abundance_files.py for every common sample across two experiment
+folders. Samples are auto-discovered — any subfolder present in BOTH experiment
+directories is compared (non-sample dirs like code_snapshot are ignored because
+they contain no abundance.tsv).
 
 Usage:
-    conda activate Joli_kallisto
-    python run_batch_comparison.py
+    # Pass experiment folder names as CLI args (recommended):
+    python analysis/run_batch_comparison.py exprmnt_2026_03_28__00_29_23 exprmnt_2026_03_28__00_38_39
+
+    # Or set EXP1 / EXP2 in the CONFIG section and run with no args:
+    python analysis/run_batch_comparison.py
 
 Inputs:
-    - EXP1, EXP2: two timestamped experiment folder names (set in CONFIG).
-    - SAMPLES: list of sample names to compare (subfolder names inside each experiment).
+    - EXP1, EXP2: two timestamped experiment folder names (CLI args or CONFIG).
+    - Samples are auto-discovered as subfolders present in both experiments that
+      contain an abundance.tsv file. No hardcoded sample list needed.
     - RESULTS_BASE: base directory containing experiment folders.
 
 Outputs:
@@ -40,18 +44,9 @@ from pathlib import Path
 # CONFIG — edit these variables before running; do not edit below
 # ============================================================
 
-# Timestamped experiment folder names (just the folder name, not the full path)
-EXP1 = "exprmnt_2026_03_15__12_05_48"   # e.g. JOLI-Kallisto run
-EXP2 = "exprmnt_2026_03_15__12_05_53"   # e.g. lr-kallisto run
-
-# Sample names to compare — must match the subfolder names inside each experiment
-SAMPLES = [
-    "flnc_01",
-    "flnc_02",
-    "flnc_03",
-    "flnc_31",
-    "flnc_32",
-]
+# Timestamped experiment folder names — overridden by CLI args when provided
+EXP1 = ""   # e.g. "exprmnt_2026_03_28__00_29_23"
+EXP2 = ""   # e.g. "exprmnt_2026_03_28__00_38_39"
 
 # Base directory containing the experiment folders
 RESULTS_BASE = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
@@ -72,100 +67,125 @@ COMPARE_PY = THIS_DIR / "compare_abundance_files.py"
 TIMESTAMP  = time.strftime("%Y_%m_%d__%H_%M_%S")
 
 
-def run_comparison_for_sample(sample: str) -> int:
+
+def discover_common_samples(exp1_dir: Path, exp2_dir: Path, abundance_file: str) -> list:
     """
-    Call compare_abundance_files.py for a single sample.
-
-    Constructs and runs the command:
-        python compare_abundance_files.py EXP1 EXP2
-            --results-base RESULTS_BASE
-            --sample SAMPLE
-            --abundance-file ABUNDANCE_FILE
-            --top-n TOP_N
-
-    Stdout from the subprocess is printed live so the user can see per-sample
-    progress as comparisons complete.
+    Find sample names present in both experiment folders that contain abundance.tsv.
 
     Args:
-        sample (str): Sample name (subfolder inside each experiment folder).
+        exp1_dir       : Path -- first experiment directory.
+        exp2_dir       : Path -- second experiment directory.
+        abundance_file : str  -- abundance filename to look for inside each subfolder.
 
     Returns:
-        int: Subprocess return code (0 = success, non-zero = failure).
+        list[str] -- sorted list of common sample names.
     """
-    cmd = [
-        sys.executable, str(COMPARE_PY),
-        EXP1, EXP2,
-        "--results-base",    RESULTS_BASE,
-        "--sample",          sample,
-        "--abundance-file",  ABUNDANCE_FILE,
-        "--top-n",           str(TOP_N),
-    ]
+    def sample_subdirs(exp_dir: Path) -> set:
+        return {
+            d.name for d in exp_dir.iterdir()
+            if d.is_dir() and (d / abundance_file).exists()
+        }
 
-    print(f"\n{'=' * 70}")
-    print(f"Sample: {sample}")
-    print(f"  Command: {' '.join(cmd)}")
-    print(f"{'=' * 70}")
+    samples1 = sample_subdirs(exp1_dir)
+    samples2 = sample_subdirs(exp2_dir)
+    common   = sorted(samples1 & samples2)
 
-    result = subprocess.run(cmd, text=True)
-    return result.returncode
+    only1 = sorted(samples1 - samples2)
+    only2 = sorted(samples2 - samples1)
+    if only1:
+        print(f"  [INFO] Samples only in EXP1 (skipped): {only1}")
+    if only2:
+        print(f"  [INFO] Samples only in EXP2 (skipped): {only2}")
+
+    return common
 
 
 def main() -> None:
     """
-    Iterate over SAMPLES and run compare_abundance_files.py for each.
-
-    Tracks which samples succeeded and which failed, prints a final summary,
-    and exits with a non-zero code if any comparison failed.
+    Parse CLI args, auto-discover common samples, and run compare_abundance_files.py
+    for each. Tracks successes/failures and exits non-zero if any comparison failed.
 
     Returns:
         None
     """
-    base = Path(RESULTS_BASE)
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Batch comparison of two experiment folders."
+    )
+    parser.add_argument("exp1", nargs="?", default=EXP1,
+                        help="First experiment folder name (overrides CONFIG EXP1).")
+    parser.add_argument("exp2", nargs="?", default=EXP2,
+                        help="Second experiment folder name (overrides CONFIG EXP2).")
+    parser.add_argument("--results-base", default=RESULTS_BASE,
+                        help=f"Base results directory. Default: {RESULTS_BASE}")
+    parser.add_argument("--abundance-file", default=ABUNDANCE_FILE,
+                        help=f"Abundance filename. Default: {ABUNDANCE_FILE}")
+    parser.add_argument("--top-n", type=int, default=TOP_N,
+                        help=f"Top-N differences per comparison. Default: {TOP_N}")
+    args = parser.parse_args()
+
+    exp1         = args.exp1
+    exp2         = args.exp2
+    results_base = args.results_base
+    abund_file   = args.abundance_file
+    top_n        = args.top_n
+
+    if not exp1 or not exp2:
+        print("ERROR: provide EXP1 and EXP2 as CLI args or set them in CONFIG.")
+        sys.exit(1)
+
+    base = Path(results_base)
 
     # Sanity check: both experiment folders must exist
-    for exp in [EXP1, EXP2]:
+    for exp in [exp1, exp2]:
         exp_dir = base / exp
         if not exp_dir.is_dir():
             print(f"ERROR: experiment folder not found: {exp_dir}")
             sys.exit(1)
 
+    # Auto-discover common samples
+    samples = discover_common_samples(base / exp1, base / exp2, abund_file)
+
+    if not samples:
+        print(f"ERROR: no common samples with {abund_file} found in both experiments.")
+        sys.exit(1)
+
     print("=" * 70)
     print(f"Batch comparison — {TIMESTAMP}")
-    print(f"  EXP1   : {EXP1}")
-    print(f"  EXP2   : {EXP2}")
-    print(f"  Samples: {len(SAMPLES)}")
-    print(f"  Base   : {RESULTS_BASE}")
+    print(f"  EXP1   : {exp1}")
+    print(f"  EXP2   : {exp2}")
+    print(f"  Samples: {samples}")
+    print(f"  Base   : {results_base}")
     print("=" * 70)
 
     succeeded = []
     failed    = []
 
-    for sample in SAMPLES:
-        # Check that the abundance file exists in both experiments before running
-        missing = []
-        for exp in [EXP1, EXP2]:
-            abund_path = base / exp / sample / ABUNDANCE_FILE
-            if not abund_path.exists():
-                missing.append(str(abund_path))
+    for sample in samples:
+        cmd = [
+            sys.executable, str(COMPARE_PY),
+            exp1, exp2,
+            "--results-base",   results_base,
+            "--sample",         sample,
+            "--abundance-file", abund_file,
+            "--top-n",          str(top_n),
+        ]
+        print(f"\n{'=' * 70}")
+        print(f"Sample: {sample}")
+        print(f"  Command: {' '.join(cmd)}")
+        print(f"{'=' * 70}")
 
-        if missing:
-            print(f"\n[SKIP] {sample} — abundance file(s) not found:")
-            for m in missing:
-                print(f"       {m}")
-            failed.append(sample)
-            continue
-
-        rc = run_comparison_for_sample(sample)
+        rc = subprocess.run(cmd, text=True).returncode
         if rc == 0:
             succeeded.append(sample)
         else:
-            print(f"[ERROR] compare_abundance_files.py returned {rc} for sample {sample}")
+            print(f"[ERROR] compare_abundance_files.py returned {rc} for {sample}")
             failed.append(sample)
 
     # Print final summary
     print("\n" + "=" * 70)
     print(f"Batch comparison complete — {TIMESTAMP}")
-    print(f"  Succeeded : {len(succeeded)} / {len(SAMPLES)}")
+    print(f"  Succeeded : {len(succeeded)} / {len(samples)}")
     if succeeded:
         for s in succeeded:
             print(f"    [OK]   {s}")

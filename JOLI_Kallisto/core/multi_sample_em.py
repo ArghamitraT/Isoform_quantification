@@ -62,6 +62,7 @@ class MultiSampleJoliEM:
     def __init__(
         self,
         sample_dirs:      list,
+        sample_names:     list  = None,
         eff_len_mode:     str   = "uniform",
         convergence_mode: str   = "joli",
         max_em_rounds:    int   = 10000,
@@ -76,8 +77,11 @@ class MultiSampleJoliEM:
         Load TCC data for all samples and initialize the Dirichlet optimizer.
 
         Args:
-            sample_dirs        : list[str] -- Paths to bustools output directories,
-                                             one per sample.
+            sample_dirs        : list[str]        -- Paths to bustools output directories,
+                                                    one per sample.
+            sample_names       : list[str] | None -- Human-readable names for each sample
+                                                    (must match sample_dirs order). When
+                                                    None, names are derived from dir basename.
             eff_len_mode       : str   -- "uniform" | "kallisto". Effective length
                                          mode passed to compute_weights().
             convergence_mode   : str   -- "joli" (recommended for MAP) or "kallisto".
@@ -96,6 +100,7 @@ class MultiSampleJoliEM:
             )
 
         self.sample_dirs        = sample_dirs
+        self.sample_names       = sample_names  # resolved below
         self.eff_len_mode       = eff_len_mode
         self.convergence_mode   = convergence_mode
         self.max_em_rounds      = max_em_rounds
@@ -111,11 +116,20 @@ class MultiSampleJoliEM:
         self.tcc_data_list    = []
         self.weight_data_list = []
         self.em_list          = []
-        self.sample_names     = []
+
+        # Resolve sample names: use provided names if given, else fall back to dir basename
+        if sample_names is not None:
+            if len(sample_names) != len(sample_dirs):
+                raise ValueError(
+                    f"sample_names length ({len(sample_names)}) must match "
+                    f"sample_dirs length ({len(sample_dirs)})"
+                )
+            self.sample_names = list(sample_names)
+        else:
+            self.sample_names = [os.path.basename(os.path.normpath(d)) for d in sample_dirs]
 
         for idx, sdir in enumerate(sample_dirs):
-            sname = os.path.basename(os.path.normpath(sdir))
-            self.sample_names.append(sname)
+            sname = self.sample_names[idx]
             print(f"\n  [{idx + 1}/{len(sample_dirs)}] {sname}")
 
             tcc_data = load_tcc_data(sdir)

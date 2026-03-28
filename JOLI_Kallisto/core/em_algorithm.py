@@ -187,9 +187,20 @@ class JoliEM:
             self._multi_ec_counts    = np.array([], dtype=np.float64)
             self._n_multi_ecs        = 0
 
+        # Active-transcript mask: True only for transcripts that appear in at
+        # least one EC for this sample. Transcripts with no reads must stay
+        # zero even when alpha_prior > 0 (prior must not invent abundance).
+        self._active_tx_mask = np.zeros(self.n_transcripts, dtype=bool)
+        if len(self._single_tx_ids) > 0:
+            self._active_tx_mask[self._single_tx_ids] = True
+        if len(self._multi_flat_tx) > 0:
+            self._active_tx_mask[self._multi_flat_tx] = True
+        n_active = int(self._active_tx_mask.sum())
+
         print(f"[JoliEM] Pre-processed: {len(single_ec_ids)} single-tx ECs, "
               f"{self._n_multi_ecs} multi-tx ECs, "
-              f"{len(self._multi_flat_tx)} total EC-transcript positions")
+              f"{len(self._multi_flat_tx)} total EC-transcript positions, "
+              f"{n_active} active transcripts (have reads in this sample)")
 
     def _em_step(self, theta: np.ndarray) -> np.ndarray:
         """
@@ -340,6 +351,11 @@ class JoliEM:
             else:
                 numerator = n
 
+            # Zero out transcripts with no reads in this sample before normalizing.
+            # Without this, alpha_prior > 0 would assign positive theta to transcripts
+            # that have zero reads here, inflating nonzero-transcript counts.
+            numerator[~self._active_tx_mask] = 0.0
+
             total = numerator.sum()
             if total > 0:
                 theta_new = numerator / total
@@ -360,14 +376,26 @@ class JoliEM:
                 ))
             else:
                 # "joli" mode: compare normalized theta directly.
-                # Faster — only monitors transcripts with > 1% of total reads.
+                # Monitor all active transcripts (theta > numerical floor).
+                # ALPHA_CHANGE_LIMIT is NOT used here — it was designed for raw
+                # counts in kallisto mode and incorrectly filters out most
+                # transcripts when applied to normalized theta over 200k+ entries.
                 changed = int(np.sum(
-                    (theta_new > ALPHA_CHANGE_LIMIT) &
+                    (theta_new > 1e-10) &
                     (np.abs(theta_new - theta) / np.maximum(theta_new, TOLERANCE)
                      > ALPHA_CHANGE)
                 ))
 
             theta = theta_new
+
+            # Log how many transcripts are being monitored (first 3 rounds only)
+            if round_num < 3:
+                if convergence_mode == "joli":
+                    n_monitored = int((theta_new > 1e-10).sum())
+                else:
+                    n_monitored = int((theta_new * total_multi_reads > ALPHA_CHANGE_LIMIT).sum())
+                print(f"[JoliEM] Round {round_num + 1}: "
+                      f"monitored={n_monitored}, changed={changed}")
 
             if changed == 0 and round_num >= min_rounds:
                 converged = True

@@ -92,12 +92,14 @@ OUTPUT_BASE=/gpfs/commons/home/atalukder/RNA_Splicing/files/results
 SAMPLES=(
     # "sim2  /gpfs/commons/home/sraghavendra/Simulation/lrgasp-simulation/sim_result_2/human_simulated_job_correct/  PacBio.simulated.fasta"
     # "ds_52_furtherDownsampled  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/ds_52_furtherDownsampled.fastq"
-    "flnc_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
+    # "flnc_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
     # "flnc_02  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
     # "flnc_03  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_03.fastq"
     # "flnc_31  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_31.fastq"
     # "flnc_32  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_32.fastq"
-    )
+    "sim1  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
+    "sim2  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
+)
 
 # =============================================================================
 # END CONFIG
@@ -209,6 +211,29 @@ else
 fi
 
 # =============================================================================
+# HELPERS
+# =============================================================================
+
+# Strip known read-file extensions to get a clean sample stem for cache naming
+get_stem() {
+    local fname="$1"
+    local stem="${fname}"
+    for ext in .fastq.gz .fasta.gz .fastq .fasta .fa .fq; do
+        if [[ "${stem}" == *"${ext}" ]]; then stem="${stem%${ext}}"; break; fi
+    done
+    echo "${stem}"
+}
+
+# Returns 0 (cache hit) if count.mtx + count.ec.txt + transcripts.txt all exist
+cache_complete() {
+    local cache_dir="$1"
+    [[ -f "${cache_dir}/count.mtx"      ]] && \
+    [[ -f "${cache_dir}/count.ec.txt"   ]] && \
+    [[ -f "${cache_dir}/transcripts.txt" ]] && \
+    return 0 || return 1
+}
+
+# =============================================================================
 # PIPELINE LOOP — one iteration per sample
 # =============================================================================
 
@@ -221,9 +246,13 @@ for entry in "${SAMPLES[@]}"; do
     echo "Processing sample: ${SAMPLE_NAME}"                      | tee -a "${LOG}"
     echo "======================================================" | tee -a "${LOG}"
 
-    # Per-sample output subfolder — prevents collision between samples
+    # Per-sample result subfolder inside the timestamped run dir
     SAMPLE_OUT="${RUN_DIR}/${SAMPLE_NAME}"
     mkdir -p "${SAMPLE_OUT}"
+
+    # Cache dir — persists across runs next to the reads file (same convention as JK)
+    STEM=$(get_stem "${READS_FILE1}")
+    CACHE_DIR="${READS_DIR}/kallisto_output/${STEM}"
 
     # Build the reads argument (single file for long-read; two files for paired short-read)
     READS_ARG="${READS_DIR}${READS_FILE1}"
@@ -231,68 +260,74 @@ for entry in "${SAMPLES[@]}"; do
         READS_ARG="${READS_ARG} ${READS_DIR}${READS_FILE2_OPT}"
     fi
 
-    # -----------------------------------------------------------------
-    # Step 1: kallisto bus — align reads, produce output.bus
-    # -----------------------------------------------------------------
-    echo ""                                                        >> "${LOG}"
-    echo "=== [${SAMPLE_NAME}] kallisto bus ==="                  >> "${LOG}"
-    echo "  Command: ${KALLISTO} bus -x bulk --threshold ${THRESHOLD} -t ${THREADS} ${BUS_MODE_FLAGS} -i ${INDEX_FILE} ${READS_ARG} -o ${SAMPLE_OUT}/" >> "${LOG}"
-
-    "${KALLISTO}" bus \
-        -x bulk \
-        --threshold "${THRESHOLD}" \
-        -t "${THREADS}" \
-        ${BUS_MODE_FLAGS} \
-        -i "${INDEX_FILE}" \
-        ${READS_ARG} \
-        -o "${SAMPLE_OUT}/" \
-        >> "${LOG}" 2>&1
-
-    echo "  [OK] kallisto bus done for ${SAMPLE_NAME}"           | tee -a "${LOG}"
+    echo "  Cache dir   : ${CACHE_DIR}"  | tee -a "${LOG}"
+    echo "  Result dir  : ${SAMPLE_OUT}" | tee -a "${LOG}"
 
     # -----------------------------------------------------------------
-    # Step 2: bustools sort — sort the .bus file
+    # Steps 1-3: kallisto bus + bustools sort + bustools count
+    # Skipped on cache hit — saves time when re-running with same reads
     # -----------------------------------------------------------------
-    echo ""                                                        >> "${LOG}"
-    echo "=== [${SAMPLE_NAME}] bustools sort ==="                 >> "${LOG}"
+    if cache_complete "${CACHE_DIR}"; then
+        echo "  [CACHE HIT] Skipping bus/sort/count — using: ${CACHE_DIR}" | tee -a "${LOG}"
+    else
+        echo "  [CACHE MISS] Running bus/sort/count → ${CACHE_DIR}" | tee -a "${LOG}"
+        mkdir -p "${CACHE_DIR}"
 
-    "${BUSTOOLS}" sort \
-        -t "${THREADS}" \
-        "${SAMPLE_OUT}/output.bus" \
-        -o "${SAMPLE_OUT}/sorted.bus" \
-        >> "${LOG}" 2>&1
+        # Step 1: kallisto bus
+        echo ""                                                            >> "${LOG}"
+        echo "=== [${SAMPLE_NAME}] Step 1: kallisto bus ==="              >> "${LOG}"
+        "${KALLISTO}" bus \
+            -x bulk \
+            --threshold "${THRESHOLD}" \
+            -t "${THREADS}" \
+            ${BUS_MODE_FLAGS} \
+            -i "${INDEX_FILE}" \
+            ${READS_ARG} \
+            -o "${CACHE_DIR}/" \
+            >> "${LOG}" 2>&1
+        echo "  [OK] kallisto bus done"                                   | tee -a "${LOG}"
 
-    echo "  [OK] bustools sort done for ${SAMPLE_NAME}"          | tee -a "${LOG}"
+        # Step 2: bustools sort
+        echo ""                                                            >> "${LOG}"
+        echo "=== [${SAMPLE_NAME}] Step 2: bustools sort ==="             >> "${LOG}"
+        "${BUSTOOLS}" sort \
+            -t "${THREADS}" \
+            "${CACHE_DIR}/output.bus" \
+            -o "${CACHE_DIR}/sorted.bus" \
+            >> "${LOG}" 2>&1
+        echo "  [OK] bustools sort done"                                  | tee -a "${LOG}"
 
-    # -----------------------------------------------------------------
-    # Step 3: bustools count — generate count matrix
-    # -----------------------------------------------------------------
-    echo ""                                                        >> "${LOG}"
-    echo "=== [${SAMPLE_NAME}] bustools count ==="                >> "${LOG}"
+        # Step 3: bustools count
+        echo ""                                                            >> "${LOG}"
+        echo "=== [${SAMPLE_NAME}] Step 3: bustools count ==="            >> "${LOG}"
+        "${BUSTOOLS}" count \
+            "${CACHE_DIR}/sorted.bus" \
+            -t "${CACHE_DIR}/transcripts.txt" \
+            -e "${CACHE_DIR}/matrix.ec" \
+            -o "${CACHE_DIR}/count" \
+            --cm -m \
+            -g "${T2G_FILE}" \
+            >> "${LOG}" 2>&1
+        echo "  [OK] bustools count done. TCC files cached: ${CACHE_DIR}" | tee -a "${LOG}"
+    fi
 
-    "${BUSTOOLS}" count \
-        "${SAMPLE_OUT}/sorted.bus" \
-        -t "${SAMPLE_OUT}/transcripts.txt" \
-        -e "${SAMPLE_OUT}/matrix.ec" \
-        -o "${SAMPLE_OUT}/count" \
-        --cm -m \
-        -g "${T2G_FILE}" \
-        >> "${LOG}" 2>&1
-
-    echo "  [OK] bustools count done for ${SAMPLE_NAME}"         | tee -a "${LOG}"
+    # Copy TCC files to experiment result dir for reproducibility
+    for f in count.mtx count.ec.txt transcripts.txt matrix.ec run_info.json; do
+        [ -f "${CACHE_DIR}/${f}" ] && cp "${CACHE_DIR}/${f}" "${SAMPLE_OUT}/${f}"
+    done
 
     # -----------------------------------------------------------------
     # Step 4: kallisto quant-tcc — EM quantification from TCC matrix
     # -----------------------------------------------------------------
     echo ""                                                        >> "${LOG}"
-    echo "=== [${SAMPLE_NAME}] kallisto quant-tcc ==="            >> "${LOG}"
+    echo "=== [${SAMPLE_NAME}] Step 4: kallisto quant-tcc ==="    >> "${LOG}"
 
     "${KALLISTO}" quant-tcc \
         -t "${THREADS}" \
         ${QUANT_MODE_FLAGS} \
-        "${SAMPLE_OUT}/count.mtx" \
+        "${CACHE_DIR}/count.mtx" \
         -i "${INDEX_FILE}" \
-        -e "${SAMPLE_OUT}/count.ec.txt" \
+        -e "${CACHE_DIR}/count.ec.txt" \
         -o "${SAMPLE_OUT}/" \
         >> "${LOG}" 2>&1
 
@@ -310,6 +345,16 @@ for entry in "${SAMPLES[@]}"; do
         >> "${LOG}" 2>&1
 
     echo "  [OK] abundance.tsv written for ${SAMPLE_NAME}"       | tee -a "${LOG}"
+
+    # Report non-zero transcript counts from abundance.tsv (tpm column 2)
+    if [ -f "${SAMPLE_OUT}/abundance.tsv" ]; then
+        TOTAL_TX=$(awk 'NR>1' "${SAMPLE_OUT}/abundance.tsv" | wc -l)
+        NONZERO_TX=$(awk 'NR>1 && $2>0' "${SAMPLE_OUT}/abundance.tsv" | wc -l)
+        echo "  Transcript counts for ${SAMPLE_NAME}:"          | tee -a "${LOG}"
+        echo "    Total transcripts : ${TOTAL_TX}"               | tee -a "${LOG}"
+        echo "    Non-zero (est_counts > 0) : ${NONZERO_TX}"     | tee -a "${LOG}"
+    fi
+
     echo ""                                                        >> "${LOG}"
     echo "  Output written to: ${SAMPLE_OUT}/"                   | tee -a "${LOG}"
 

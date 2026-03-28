@@ -75,7 +75,10 @@ from multi_sample_em import MultiSampleJoliEM
 # ============================================================
 
 # --- Sample input: use ONE of the two options ---
-SAMPLE_DIRS = [                         # Option A: explicit list of sample dirs
+# Option A: explicit list of sample dirs
+SAMPLE_DIRS = [   
+    "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/kallisto_output/ds_52_furtherDownsampled",
+    "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/kallisto_output/ds_52_furtherDownsampled",
     # "/path/to/kallisto_output/sample_1/",
     # "/path/to/kallisto_output/sample_2/",
 ]
@@ -87,7 +90,7 @@ READ_TYPE           = "long"            # "long" (PacBio/ONT) | "short" (paired 
 EFF_LEN_MODE        = "uniform"         # "uniform" | "kallisto"
 CONVERGENCE_MODE    = "joli"            # "joli" (recommended for MAP) | "kallisto"
 MAX_EM_ROUNDS       = 10000             # max inner EM rounds per sample per GD round
-MIN_EM_ROUNDS       = 50               # min inner EM rounds before convergence check
+MIN_EM_ROUNDS       = 1                # min inner EM rounds before convergence check
 MAX_GD_ROUNDS       = 500              # max outer GD iterations
 GD_LR               = 0.01             # Adam learning rate for shared alpha
 ALPHA_INITIAL       = 1.0              # initial Dirichlet concentration (uniform prior)
@@ -120,6 +123,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sample_dirs", nargs="+", default=None,
         help="Explicit list of bustools output directories (overrides CONFIG SAMPLE_DIRS)."
+    )
+    parser.add_argument(
+        "--sample_names", nargs="+", default=None,
+        help="Human-readable names for each sample (must match --sample_dirs order). "
+             "If omitted, names are derived from the directory basename."
     )
     parser.add_argument(
         "--results_base", default=None,
@@ -381,7 +389,7 @@ def main() -> None:
     print(f"  gd_lr            : {gd_lr}")
     print(f"  alpha_initial    : {alpha_initial}")
     print(f"  gd_conv_tol      : {gd_convergence_tol}")
-    print(f"  gd_steps/round   : {gd_steps_per_round}")
+    print(f"  gd_steps/em_round   : {gd_steps_per_round}")
     print("=" * 60)
 
     # Save experiment description and code snapshot before running
@@ -402,6 +410,7 @@ def main() -> None:
     # --- Run multi-sample MAP EM ---
     ms = MultiSampleJoliEM(
         sample_dirs        = sample_dirs,
+        sample_names       = args.sample_names,   # None → derived from dir basename
         eff_len_mode       = eff_len_mode,
         convergence_mode   = convergence_mode,
         max_em_rounds      = max_em_rounds,
