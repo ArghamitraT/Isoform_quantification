@@ -538,6 +538,203 @@ Each test prints `PASS` / `FAIL` per check and a summary line. No external test 
 
 ---
 
+### Analysis Scripts
+
+All analysis scripts are run from the `JOLI_Kallisto/` root after one or more pipeline runs complete.
+
+```bash
+conda activate NanoCount_5
+cd /gpfs/commons/home/atalukder/RNA_Splicing/code/JOLI_Kallisto
+```
+
+#### GT vs GT inter-sample correlation — `run_gt_gt_comparison.py`
+
+Measures how similar the two ground truth distributions are to each other.
+This is the upper-bound baseline — if the two samples were identical, perfect
+correlation is the theoretical ceiling for any predictor.
+Reports Spearman + Pearson on three subsets: all transcripts, TP-only (nonzero
+in both), and nonzero in either. Output is printed to stdout.
+
+```bash
+python analysis/run_gt_gt_comparison.py
+```
+
+Edit `GT_PATHS` in the CONFIG section to point to different GT files.
+
+---
+
+#### Compare abundance vs. ground truth — `run_gt_comparison.py`
+
+Computes Spearman/Pearson correlation between predicted abundance and ground truth TPM.
+Reports TP/FP/FN/TN counts and metric sensitivity per threshold.
+Output saved inside the experiment folder as `gt_comparison_{timestamp}.txt`.
+
+```bash
+# Single experiment:
+python analysis/run_gt_comparison.py exprmnt_2026_03_28__00_29_23
+
+# Multiple experiments (each gets its own independent output file):
+python analysis/run_gt_comparison.py exprmnt_2026_03_28__00_29_23 exprmnt_2026_03_28__00_51_02
+```
+
+Supported sample names (auto-detected from experiment subfolders):
+`sim1`, `sim2`, `sim_sr_s1`, `sim_sr_s2` — all mapped to their GT files automatically.
+
+---
+
+#### Batch comparison (JK vs LK) — `run_batch_comparison.py`
+
+Compares abundance.tsv files between two experiment folders (e.g. JK vs LK).
+Output saved inside each experiment folder as `comparison_vs_{other}_{timestamp}.txt`.
+
+```bash
+python analysis/run_batch_comparison.py exprmnt_JK_... exprmnt_LK_...
+```
+
+---
+
+#### EDA (index discrepancy + leaked transcripts) — `run_eda.py`
+
+Priority 1 (index discrepancy) and Priority 6 (leaked transcripts) checks.
+Pass the JK MS experiment folder; it auto-discovers the LK comparison folder from CONFIG.
+Output saved inside the experiment folder under `eda_{timestamp}/`.
+
+```bash
+python analysis/run_eda.py
+```
+
+Edit `JK_MS_DIR` and `LK_DIR` in the CONFIG section of the script before running.
+
+---
+
+#### Training diagnostic figures — `plot_training.py`
+
+Reads `training_stats.pkl` from a JK MS experiment folder and produces diagnostic figures
+(GD loss, EM rounds per GD step, inter-sample Spearman, alpha entropy, etc.).
+Figures saved to `<experiment_dir>/figures/`.
+
+```bash
+python analysis/plot_training.py
+```
+
+Edit `EXPERIMENT_DIR` in the CONFIG section of the script before running.
+
+---
+
+#### Convergence animation GIFs — `plot_convergence_animation.py`
+
+Produces per-sample animated GIFs showing theta/alpha convergence across training rounds,
+compared against ground truth. Requires snapshot pkl files from prior runs.
+
+**Prerequisites:**
+1. Run `run_joli_kallisto.sh` with `SAVE_SNAPSHOTS=true` for each sample (sim1, sim2).
+   → generates `theta_snapshots.pkl` inside each sample subfolder.
+2. Run `run_multisample_joli.sh` with `SAVE_SNAPSHOTS=true`.
+   → generates `snapshots.pkl` inside the experiment folder.
+
+**Configure** the three experiment folder names in the CONFIG section:
+```python
+JK_SINGLE_SIM1_DIR = "exprmnt_..."   # JK single run, sim1
+JK_SINGLE_SIM2_DIR = "exprmnt_..."   # JK single run, sim2
+JK_MS_DIR          = "exprmnt_..."   # JK multi-sample run
+```
+
+**Run:**
+```bash
+python analysis/plot_convergence_animation.py
+```
+
+**Outputs** (saved inside `JK_MS_DIR/figures/`):
+- `convergence_sim1.gif` — 4-panel animation: GT | JK theta | JK MS alpha | JK MS theta
+- `convergence_sim2.gif` — same for sim2
+- `jk_inter_sample_spearman.png` — Spearman(sim1 theta, sim2 theta) vs round for JK
+- `jkms_inter_sample_spearman.png` — same for JK MS
+
+---
+
+#### Interactive convergence explorer — `plot_interactive_convergence.py`
+
+Same 4-panel layout as the GIF but as a standalone HTML with a **draggable slider** to
+scrub through training rounds. Open in any browser — no server required after transfer.
+
+Same prerequisites as `plot_convergence_animation.py` (snapshot pkl files).
+
+**Configure** `JK_SINGLE_DIR` and `JK_MS_DIR` in the CONFIG section, then:
+
+```bash
+python analysis/plot_interactive_convergence.py
+```
+
+**Outputs** (saved inside `JK_MS_DIR/figures/`):
+- `interactive_convergence_sim1.html`
+- `interactive_convergence_sim2.html`
+
+---
+
+#### Static final-state figure — `plot_final_state.py`
+
+Same 4-panel layout but a single PNG showing only the **final training round**.
+All panels in TPM scale (theta × 1e6; alpha normalized then × 1e6).
+Figure title shows Spearman vs GT for both JK and JK MS.
+
+```bash
+python analysis/plot_final_state.py
+```
+
+**Outputs** (saved inside `JK_MS_DIR/figures/`):
+- `final_state_sim1.png`
+- `final_state_sim2.png`
+
+---
+
+#### JK inter-sample theta correlation — `run_jk_inter_sample_corr.py`
+
+Computes Spearman + Pearson between sim1 and sim2 theta estimates at every snapshot
+round from a JK single-sample experiment. Answers: how does inter-sample similarity
+evolve across EM iterations?
+
+```bash
+python analysis/run_jk_inter_sample_corr.py
+```
+
+Edit `JK_EXP_DIR` in the CONFIG section (default: `exprmnt_2026_03_30__11_14_19`).
+
+**Output** (saved inside `JK_EXP_DIR/figures/`):
+- `jk_inter_sample_spearman.png` — Spearman + Pearson side-by-side vs EM round
+
+---
+
+### Viewing HTML files from the cluster
+
+HTML outputs (interactive plots) cannot be scp'd directly. Use the `/view-html` skill
+or the manual SSH tunnel method.
+
+#### `/view-html` skill (Claude Code slash command)
+
+```
+/view-html /gpfs/.../figures/interactive_convergence_sim1.html
+```
+
+Claude will start an HTTP server on a free port and give you the URL to open in
+VS Code's built-in Simple Browser (`Ctrl+Shift+P` → `Simple Browser: Show`).
+
+#### Manual method
+
+```bash
+# On the cluster — start server in the figures folder:
+cd /gpfs/.../figures/
+python -m http.server 8787
+
+# VS Code will detect the port automatically (Ports tab, bottom panel).
+# Or open via Command Palette:
+#   Ctrl+Shift+P → "Simple Browser: Show" → http://localhost:8787/interactive_convergence_sim1.html
+#
+# To stop the server:
+kill %1
+```
+
+---
+
 ### Per-sample Output Layout (single-sample pipelines)
 
 ```

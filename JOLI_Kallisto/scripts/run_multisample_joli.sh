@@ -22,6 +22,11 @@
 #   <reads_dir>/kallisto_output/<sample_stem>/
 #   e.g. reads/flnc_01.fastq -> reads/kallisto_output/flnc_01/count.mtx
 #
+# Supported read types per sample (set in SAMPLES array, field 2):
+#   long  -> single file, --long --threshold flags, k=KMER_SIZE_LONG (63)
+#   short -> two files (R1 R2), standard paired-end, k=KMER_SIZE_SHORT (31)
+# Mixed long + short samples in one run are fully supported.
+#
 # Run locally:   bash run_multisample_joli.sh
 # Run on SLURM:  bash submit_multisample_joli.sh
 # =============================================================================
@@ -45,14 +50,15 @@ T2G_FILE="/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kal
 # Set to 1 to build/rebuild the index from TRANSCRIPTOME_FASTA before running.
 # Set to 0 to skip and use the existing INDEX_FILE.
 BUILD_INDEX=0
-# k-mer size: 63 for long-read (PacBio/ONT), 31 for short-read
-KMER_SIZE=63
+# k-mer sizes: long-read uses larger k (63); short-read uses standard k (31).
+# Both are used automatically based on per-sample read_type (see SAMPLES below).
+KMER_SIZE_LONG=63    # for long reads (PacBio/ONT)
+KMER_SIZE_SHORT=31   # for short reads (paired Illumina)
 
 # --- Run settings ---
-READ_TYPE="long"     # "long" (PacBio/ONT) or "short" (paired Illumina)
-PLATFORM="PacBio"    # used when READ_TYPE=long: "PacBio" or "ONT"
+PLATFORM="PacBio"    # long-read platform: "PacBio" or "ONT" (used for all long-read samples)
 THREADS=32
-THRESHOLD=0.8        # kallisto bus alignment threshold
+THRESHOLD=0.8        # kallisto bus alignment threshold (long-read only)
 
 # --- Python / conda ---
 CONDA_ENV="Joli_kallisto"
@@ -71,18 +77,37 @@ GD_LR=0.01
 ALPHA_INITIAL=1.0
 GD_CONVERGENCE_TOL=1e-6
 GD_STEPS_PER_ROUND=10
+MIN_READ_SUPPORT=0     # Fix A: min expected reads n[t] to apply Dirichlet prior
+#                        #   0.0 = disabled (original behaviour)
+#                        #   try 0.1 to reduce false-positive multi-mapping leakage
+SAVE_SNAPSHOTS=true    # true  = save alpha+theta snapshots every SNAPSHOT_INTERVAL rounds
+#                        #          to snapshots.pkl — used by plot_convergence_animation.py
+#                        # false = disabled (default; saves disk space)
+SNAPSHOT_INTERVAL=5    # save a snapshot every N rounds (only used when SAVE_SNAPSHOTS=true)
+LOOP_MODE="em_wrapper"  # Training loop structure:
+#                        #   "gd_wrapper" — GD outer loop, EM to convergence per round (default)
+#                        #   "em_wrapper" — EM convergence drives outer loop, 1 EM step +
+#                        #                 GD_STEPS_PER_ROUND Adam steps per iteration (AT_code)
+
+# Free-text description of this experiment run — printed at startup and saved in
+# experiment_description.log. Leave empty for no comment.
+EXPERIMENT_COMMENT="em_wrapper; with snapshot ON; now records the iteration 0 before any calculation"
 
 # --- Samples ---
-# Format (long-read):  "sample_name  reads_dir  reads_file"
-# Format (short-read): "sample_name  reads_dir  R1_file  R2_file"
+# Each entry: "sample_name  read_type  reads_dir  file1  [file2]"
+#   read_type = "long"  → single file, kallisto --long --threshold flags, KMER_SIZE_LONG
+#   read_type = "short" → two files (R1 R2), standard paired-end flags, KMER_SIZE_SHORT
+# Mixed long + short samples in the same array is supported.
 # Minimum 2 samples required for multi-sample MAP EM.
 SAMPLES=(
-    # "flnc_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
-    # "flnc_02  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
-    # "ds_52_furtherDownsampled_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/  ds_52_furtherDownsampled.fastq"
-    # "ds_52_furtherDownsampled_02  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/  ds_52_furtherDownsampled.fastq"
-    "sim1  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
-    "sim2  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
+    # Long-read examples:
+    # "flnc_01  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
+    # "flnc_02  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
+    # Short-read examples:
+    # "sr_s1  short  /path/to/short_reads/  sample1_R1.fastq.gz  sample1_R2.fastq.gz"
+    # "sr_s2  short  /path/to/short_reads/  sample2_R1.fastq.gz  sample2_R2.fastq.gz"
+    "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
+    "sim2  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
 )
 
 # ============================================================
@@ -112,6 +137,9 @@ PREP_TIMESTAMP="$(date +%Y_%m_%d__%H_%M_%S)"
 PREP_LOG="/tmp/joli_multisample_prep_${PREP_TIMESTAMP}.log"
 echo "Script: $(realpath "$0")" > "${PREP_LOG}"
 echo "Preprocessing started: ${PREP_TIMESTAMP}" | tee -a "${PREP_LOG}"
+if [[ -n "${EXPERIMENT_COMMENT}" ]]; then
+    echo "EXPERIMENT_COMMENT: ${EXPERIMENT_COMMENT}" | tee -a "${PREP_LOG}"
+fi
 
 RUN_START=$(date +%s)
 
@@ -155,10 +183,10 @@ fi
 # Step 0 (optional): Build kallisto index
 # ============================================================
 if [[ "${BUILD_INDEX}" == "1" ]]; then
-    echo "Step 0: kallisto index" | tee -a "${PREP_LOG}"
+    echo "Step 0: kallisto index (k=${KMER_SIZE_LONG}, long-read k-mer)" | tee -a "${PREP_LOG}"
     [[ ! -f "${TRANSCRIPTOME_FASTA}" ]] && \
         echo "ERROR: TRANSCRIPTOME_FASTA not found: ${TRANSCRIPTOME_FASTA}" | tee -a "${PREP_LOG}" && exit 1
-    "${KALLISTO}" index --index "${INDEX_FILE}" -k "${KMER_SIZE}" "${TRANSCRIPTOME_FASTA}" \
+    "${KALLISTO}" index --index "${INDEX_FILE}" -k "${KMER_SIZE_LONG}" "${TRANSCRIPTOME_FASTA}" \
         2>&1 | tee -a "${PREP_LOG}"
     echo "[OK] Index built: ${INDEX_FILE}" | tee -a "${PREP_LOG}"
 else
@@ -176,10 +204,34 @@ CACHE_DIRS=()    # will be passed as --sample_dirs to the Python script
 SAMPLE_NAMES=()  # will be passed as --sample_names to the Python script
 
 for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
-    read -r SAMPLE_NAME READS_DIR READS_FILE1 <<< "${SAMPLE_ENTRY}"
-    READS_FILE2=""
-    if [[ $(echo "${SAMPLE_ENTRY}" | awk '{print NF}') -ge 4 ]]; then
-        READS_FILE2=$(echo "${SAMPLE_ENTRY}" | awk '{print $4}')
+    # Parse fields: sample_name  read_type  reads_dir  file1  [file2]
+    read -r SAMPLE_NAME SAMPLE_READ_TYPE READS_DIR READS_FILE1 READS_FILE2_MAYBE <<< "${SAMPLE_ENTRY}"
+    READS_FILE2="${READS_FILE2_MAYBE:-}"
+
+    # Validate read_type
+    if [[ "${SAMPLE_READ_TYPE}" != "long" && "${SAMPLE_READ_TYPE}" != "short" ]]; then
+        echo "ERROR: Unknown read_type '${SAMPLE_READ_TYPE}' for sample '${SAMPLE_NAME}'." \
+            | tee -a "${PREP_LOG}"
+        echo "       Must be 'long' or 'short'." | tee -a "${PREP_LOG}"
+        ERRORS+=("${SAMPLE_NAME}")
+        continue
+    fi
+
+    # Short-read requires two files
+    if [[ "${SAMPLE_READ_TYPE}" == "short" && -z "${READS_FILE2}" ]]; then
+        echo "ERROR: Sample '${SAMPLE_NAME}' has read_type=short but only one file provided." \
+            | tee -a "${PREP_LOG}"
+        echo "       Format: \"sample_name  short  reads_dir  R1_file  R2_file\"" \
+            | tee -a "${PREP_LOG}"
+        ERRORS+=("${SAMPLE_NAME}")
+        continue
+    fi
+
+    # Select k-mer size based on read type
+    if [[ "${SAMPLE_READ_TYPE}" == "long" ]]; then
+        KMER_SIZE="${KMER_SIZE_LONG}"
+    else
+        KMER_SIZE="${KMER_SIZE_SHORT}"
     fi
 
     STEM=$(get_stem "${READS_FILE1}")
@@ -187,9 +239,13 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
 
     echo "" | tee -a "${PREP_LOG}"
     echo "------------------------------------------------------------" | tee -a "${PREP_LOG}"
-    echo "Sample:    ${SAMPLE_NAME}"                | tee -a "${PREP_LOG}"
-    echo "Reads:     ${READS_DIR}/${READS_FILE1}"   | tee -a "${PREP_LOG}"
-    echo "Cache dir: ${CACHE_DIR}"                  | tee -a "${PREP_LOG}"
+    echo "Sample:    ${SAMPLE_NAME}"                          | tee -a "${PREP_LOG}"
+    echo "Read type: ${SAMPLE_READ_TYPE}  (k=${KMER_SIZE})"  | tee -a "${PREP_LOG}"
+    echo "Reads:     ${READS_DIR}/${READS_FILE1}"             | tee -a "${PREP_LOG}"
+    if [[ -n "${READS_FILE2}" ]]; then
+        echo "           ${READS_DIR}/${READS_FILE2}"         | tee -a "${PREP_LOG}"
+    fi
+    echo "Cache dir: ${CACHE_DIR}"                            | tee -a "${PREP_LOG}"
     echo "------------------------------------------------------------" | tee -a "${PREP_LOG}"
 
     if cache_complete "${CACHE_DIR}"; then
@@ -200,8 +256,8 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
         mkdir -p "${CACHE_DIR}"
 
         # -- Step 1: kallisto bus --
-        echo "Step 1: kallisto bus" | tee -a "${PREP_LOG}"
-        if [[ "${READ_TYPE}" == "long" ]]; then
+        echo "Step 1: kallisto bus (read_type=${SAMPLE_READ_TYPE})" | tee -a "${PREP_LOG}"
+        if [[ "${SAMPLE_READ_TYPE}" == "long" ]]; then
             "${KALLISTO}" bus \
                 -x bulk \
                 -i "${INDEX_FILE}" \
@@ -293,18 +349,23 @@ echo "" | tee -a "${PREP_LOG}"
 echo "Step 4: Multi-sample MAP EM (main_multisample_joli.py)" | tee -a "${PREP_LOG}"
 
 "${PYTHON}" "${SCRIPT_DIR}/../main_multisample_joli.py" \
-    --sample_dirs       "${CACHE_DIRS[@]}" \
-    --sample_names      "${SAMPLE_NAMES[@]}" \
-    --results_base      "${OUTPUT_BASE}" \
-    --eff_len_mode      "${EFF_LEN_MODE}" \
-    --convergence_mode  "${CONVERGENCE_MODE}" \
-    --max_em_rounds     "${MAX_EM_ROUNDS}" \
-    --min_em_rounds     "${MIN_EM_ROUNDS}" \
-    --max_gd_rounds     "${MAX_GD_ROUNDS}" \
-    --gd_lr             "${GD_LR}" \
-    --alpha_initial     "${ALPHA_INITIAL}" \
+    --sample_dirs        "${CACHE_DIRS[@]}" \
+    --sample_names       "${SAMPLE_NAMES[@]}" \
+    --results_base       "${OUTPUT_BASE}" \
+    --eff_len_mode       "${EFF_LEN_MODE}" \
+    --convergence_mode   "${CONVERGENCE_MODE}" \
+    --max_em_rounds      "${MAX_EM_ROUNDS}" \
+    --min_em_rounds      "${MIN_EM_ROUNDS}" \
+    --max_gd_rounds      "${MAX_GD_ROUNDS}" \
+    --gd_lr              "${GD_LR}" \
+    --alpha_initial      "${ALPHA_INITIAL}" \
     --gd_convergence_tol "${GD_CONVERGENCE_TOL}" \
     --gd_steps_per_round "${GD_STEPS_PER_ROUND}" \
+    --min_read_support   "${MIN_READ_SUPPORT}" \
+    --loop_mode           "${LOOP_MODE}" \
+    --save_snapshots      "${SAVE_SNAPSHOTS}" \
+    --snapshot_interval   "${SNAPSHOT_INTERVAL}" \
+    --experiment_comment  "${EXPERIMENT_COMMENT}" \
     2>&1 | tee -a "${PREP_LOG}"
 
 RUN_END=$(date +%s)

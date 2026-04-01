@@ -8,9 +8,9 @@
 
 ## Environment
 
-**Conda env:** `NanoCount_5_shree` — do not modify it.
+**Conda env:** `lrgsp_simulation` — do not modify it.
 
-**Packages already available in `NanoCount_5_shree`:**
+**Packages already available in `lrgsp_simulation`:**
 - numpy, pandas, scipy, pysam, biopython
 - matplotlib, seaborn, tqdm
 - nanocount, torch, pyro-ppl
@@ -38,7 +38,8 @@ code/Simulations/
 ├── plans/
 │   └── simulation_pipeline_plan.md   # this file
 ├── commands/
-│   └── simulation.md                  # Claude skill for guided workflow
+│   ├── simulation.md                  # Claude skill for guided workflow
+│   └── install_pipeline.md            # Claude skill for installing all pipeline files
 ├── src/
 │   ├── prepare_reference.py           # Phase 1: GTF + genome → simulation-ready refs
 │   ├── generate_abundances.py         # Phase 2: synthetic TPM profile generation
@@ -141,7 +142,7 @@ sbatch submit_pacbio.sh
 sbatch submit_ont.sh
 ```
 
-Each SLURM script activates `NanoCount_5_shree` and loads the relevant modules.
+Each SLURM script activates `lrgsp_simulation` and loads the relevant modules.
 
 ---
 

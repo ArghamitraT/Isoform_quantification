@@ -72,6 +72,10 @@ class MultiSampleJoliEM:
         alpha_initial:    float = 1.0,
         gd_convergence_tol: float = 1e-6,
         gd_steps_per_round: int = 10,
+        min_read_support:   float = 0.0,
+        loop_mode:          str   = "gd_wrapper",
+        save_snapshots:     bool  = False,
+        snapshot_interval:  int   = 5,
     ):
         """
         Load TCC data for all samples and initialize the Dirichlet optimizer.
@@ -92,7 +96,23 @@ class MultiSampleJoliEM:
             gd_lr              : float -- Adam learning rate for alpha.
             alpha_initial      : float -- Starting value for all alpha[t].
             gd_convergence_tol : float -- Stop outer loop when |gd_loss_change| < this.
-            gd_steps_per_round : int   -- Adam steps per outer GD round.
+            gd_steps_per_round : int   -- Adam steps per outer GD round (gd_wrapper) or
+                                         Adam steps per EM step (em_wrapper, default 10
+                                         matching AT_code DirichletOptimizer.update_alpha).
+            min_read_support   : float -- Fix A flag. Minimum expected read count n[t]
+                                         required to apply the Dirichlet prior in the M-step.
+                                         0.0 = disabled (prior always applied, default).
+                                         Typical value to try: 0.1 reads.
+            loop_mode          : str   -- "gd_wrapper" (default): GD outer loop, EM to full
+                                         convergence per round — original JOLI behaviour.
+                                         "em_wrapper": EM convergence drives the outer loop,
+                                         1 EM step + gd_steps_per_round GD steps per iteration
+                                         — matches AT_code training structure.
+            save_snapshots     : bool  -- When True, save alpha + per-sample theta every
+                                         snapshot_interval rounds to snapshots.pkl.
+                                         Used by plot_convergence_animation.py. Default False.
+            snapshot_interval  : int   -- Save a snapshot every this many rounds.
+                                         Only used when save_snapshots=True. Default 5.
         """
         if len(sample_dirs) < 2:
             raise ValueError(
@@ -110,6 +130,15 @@ class MultiSampleJoliEM:
         self.alpha_initial      = alpha_initial
         self.gd_convergence_tol = gd_convergence_tol
         self.gd_steps_per_round = gd_steps_per_round
+        self.min_read_support   = min_read_support
+        self.loop_mode          = loop_mode
+        self.save_snapshots     = save_snapshots
+        self.snapshot_interval  = snapshot_interval
+
+        if loop_mode not in ("gd_wrapper", "em_wrapper"):
+            raise ValueError(
+                f"loop_mode must be 'gd_wrapper' or 'em_wrapper', got '{loop_mode}'"
+            )
 
         # --- Load TCC data and build JoliEM instance for each sample ---
         print(f"\n[MultiSampleJoliEM] Loading {len(sample_dirs)} samples...")
@@ -183,16 +212,18 @@ class MultiSampleJoliEM:
               "n_gd_rounds"     : int              -- number of GD rounds completed
               "converged"       : bool             -- whether GD converged
         """
-        print(f"\n[MultiSampleJoliEM] Starting outer GD loop: "
+        # Branch to the appropriate training loop
+        tracker = TrainingTracker(self.sample_names)
+        if self.loop_mode == "em_wrapper":
+            return self._run_em_wrapper(tracker)
+
+        print(f"\n[MultiSampleJoliEM] Starting outer GD loop (gd_wrapper): "
               f"max_gd_rounds={self.max_gd_rounds}, "
               f"gd_convergence_tol={self.gd_convergence_tol}")
 
         gd_loss_history = []   # list of loss lists, one per outer round
         prev_gd_loss    = None
         gd_converged    = False
-
-        # Initialize tracker
-        tracker = TrainingTracker(self.sample_names)
 
         for gd_round in range(self.max_gd_rounds):
             print(f"\n[MultiSampleJoliEM] === GD round {gd_round + 1} / {self.max_gd_rounds} ===")
@@ -213,6 +244,7 @@ class MultiSampleJoliEM:
                     convergence_mode = self.convergence_mode,
                     alpha_prior      = current_alpha,
                     init_theta       = self.theta_list[s_idx],   # None on round 0
+                    min_read_support = self.min_read_support,
                 )
 
                 # Store normalized theta (not raw alpha) for GD step
@@ -281,6 +313,135 @@ class MultiSampleJoliEM:
             "tracker":         tracker,
         }
 
+    def _run_em_wrapper(self, tracker: "TrainingTracker") -> dict:
+        """
+        em_wrapper training loop — matches AT_code's training structure.
+
+        Per outer iteration:
+          1. One EM step per sample (JoliEM.em_step — single E+M pass, no zeroing).
+          2. gd_steps_per_round Adam steps to update shared alpha (default 10,
+             matching AT_code DirichletOptimizer_vector.update_alpha max_iterations=10).
+
+        The outer loop runs until all samples' EM convergence criterion is met
+        (n_changed == 0 for every sample) or max_gd_rounds iterations are reached.
+        min_em_rounds sets a floor on iterations before convergence can be declared.
+
+        After convergence, self.theta_list is populated so write_results() works
+        unchanged (it calls em.run(max_em_rounds=1) for zeroing + finalRound).
+
+        Args:
+            tracker : TrainingTracker -- pre-created tracker instance from run().
+
+        Returns:
+            dict with same keys as the gd_wrapper path:
+              theta_list, alpha, gd_loss_history, n_gd_rounds, converged, tracker.
+        """
+        print(f"\n[MultiSampleJoliEM] Starting em_wrapper loop (AT_code style): "
+              f"max_rounds={self.max_gd_rounds}, "
+              f"min_rounds={self.min_em_rounds}, "
+              f"gd_steps_per_em={self.gd_steps_per_round}")
+
+        # Initialize thetas uniformly — mirrors JoliEM's default uniform init
+        thetas = [
+            np.full(self.n_transcripts, 1.0 / self.n_transcripts, dtype=np.float64)
+            for _ in self.em_list
+        ]
+
+        # n_changed[s] tracks how many transcripts are still changing for sample s.
+        # Start with large sentinel so the loop always runs at least one iteration.
+        n_changed_list = [int(1e9)] * len(self.em_list)
+
+        gd_loss_history = []
+        prev_gd_loss    = None
+        round_num       = 0
+
+        # Record initialization snapshot (round=-1) before any training begins.
+        # alpha = ALPHA_INITIAL (all ones scaled), theta = uniform 1/T.
+        if self.save_snapshots:
+            tracker.record_snapshot(-1, self.dirichlet_opt.get_alpha(), thetas)
+
+        while round_num < self.max_gd_rounds:
+            print(f"\n[MultiSampleJoliEM] === em_wrapper round {round_num + 1} "
+                  f"/ {self.max_gd_rounds} ===")
+
+            current_alpha = self.dirichlet_opt.get_alpha()
+
+            # --- 1 EM step per sample ---
+            for s_idx, (em, sname) in enumerate(zip(self.em_list, self.sample_names)):
+                theta_new, n_changed = em.em_step(
+                    theta            = thetas[s_idx],
+                    alpha_prior      = current_alpha,
+                    min_read_support = self.min_read_support,
+                    convergence_mode = self.convergence_mode,
+                )
+                thetas[s_idx]         = theta_new
+                n_changed_list[s_idx] = n_changed
+
+            # --- gd_steps_per_round Adam steps to update shared alpha ---
+            theta_matrix = np.stack(thetas)   # shape (S, T)
+            alpha_updated, round_loss_history = self.dirichlet_opt.update(
+                theta_matrix,
+                max_iterations = self.gd_steps_per_round,
+            )
+            gd_loss_history.append(round_loss_history)
+            last_loss = round_loss_history[-1]
+
+            if prev_gd_loss is not None:
+                loss_change = abs(prev_gd_loss - last_loss)
+                print(f"[MultiSampleJoliEM] Round {round_num + 1}: "
+                      f"loss={last_loss:.4f}, |change|={loss_change:.2e}, "
+                      f"max_n_changed={max(n_changed_list)}")
+            else:
+                print(f"[MultiSampleJoliEM] Round {round_num + 1}: "
+                      f"loss={last_loss:.4f}, "
+                      f"max_n_changed={max(n_changed_list)}")
+            prev_gd_loss = last_loss
+
+            # Record metrics — em_rounds_list=1 since each sample ran 1 EM step
+            tracker.record(
+                gd_round          = round_num,
+                theta_list        = thetas,
+                alpha             = self.dirichlet_opt.get_alpha(),
+                em_rounds_list    = [1] * len(self.em_list),
+                em_converged_list = [c == 0 for c in n_changed_list],
+                gd_loss           = last_loss,
+            )
+            tracker.print_round_summary(round_num)
+
+            # Save snapshot every snapshot_interval rounds
+            if self.save_snapshots and round_num % self.snapshot_interval == 0:
+                tracker.record_snapshot(round_num, self.dirichlet_opt.get_alpha(), thetas)
+
+            round_num += 1
+
+            # Convergence: all samples' EM converged AND min_em_rounds satisfied
+            if max(n_changed_list) == 0 and round_num >= self.min_em_rounds:
+                print(f"[MultiSampleJoliEM] em_wrapper converged at round {round_num}.")
+                break
+
+        em_converged = max(n_changed_list) == 0
+        if not em_converged:
+            print(f"[MultiSampleJoliEM] Reached max_rounds={self.max_gd_rounds} "
+                  f"without EM convergence.")
+
+        # Store final thetas so write_results() can finalize (zeroing + finalRound)
+        self.theta_list = thetas
+
+        final_alpha = self.dirichlet_opt.get_alpha()
+        print(f"\n[MultiSampleJoliEM] em_wrapper done. "
+              f"Rounds={round_num}, converged={em_converged}, "
+              f"alpha: min={final_alpha.min():.4f}, max={final_alpha.max():.4f}, "
+              f"mean={final_alpha.mean():.4f}")
+
+        return {
+            "theta_list":      self.theta_list,
+            "alpha":           final_alpha,
+            "gd_loss_history": gd_loss_history,
+            "n_gd_rounds":     round_num,
+            "converged":       em_converged,
+            "tracker":         tracker,
+        }
+
     def write_results(self, output_dir: str, results: dict) -> None:
         """
         Write per-sample abundance.tsv, alpha_final.npy, and gd_loss_history.pkl.
@@ -312,6 +473,7 @@ class MultiSampleJoliEM:
                 convergence_mode = self.convergence_mode,
                 alpha_prior      = results["alpha"],
                 init_theta       = theta_s,
+                min_read_support = self.min_read_support,
             )
 
             out_path = os.path.join(sample_out, "abundance.tsv")
@@ -339,6 +501,11 @@ class MultiSampleJoliEM:
         if tracker is not None:
             stats_path = os.path.join(output_dir, "training_stats.pkl")
             tracker.save(stats_path)
+
+            # Save snapshots if enabled
+            if self.save_snapshots and tracker.snapshots:
+                snap_path = os.path.join(output_dir, "snapshots.pkl")
+                tracker.save_snapshots(snap_path)
 
             # Generate figures — imported here to keep matplotlib out of the
             # critical training path (only loaded when writing results)

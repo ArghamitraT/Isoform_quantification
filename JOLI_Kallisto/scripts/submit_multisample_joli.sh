@@ -19,6 +19,10 @@ TIME="24:00:00"
 MAIL_USER="atalukder@nygenome.org"
 MAIL_TYPE="END,FAIL"
 CONDA_ENV="Joli_kallisto"
+
+# Free-text description of this submission (for your records; echoed at submit time).
+# The actual experiment comment that gets saved in results lives in run_multisample_joli.sh.
+EXPERIMENT_COMMENT=""
 # ============================================================
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -28,6 +32,9 @@ echo "Submitting JOLI multi-sample pipeline to SLURM..."
 echo "  Pipeline script: ${PIPELINE_SCRIPT}"
 echo "  Conda env:       ${CONDA_ENV}"
 echo "  Resources:       ${CPUS} CPUs, ${MEM} RAM, ${TIME} time limit"
+if [[ -n "${EXPERIMENT_COMMENT}" ]]; then
+    echo "  Comment:         ${EXPERIMENT_COMMENT}"
+fi
 
 sbatch \
     --job-name="${JOB_NAME}" \

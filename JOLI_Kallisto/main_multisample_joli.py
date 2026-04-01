@@ -34,6 +34,7 @@ CLI args (all optional — override CONFIG when provided):
   --alpha_initial FLOAT        Initial Dirichlet concentration.
   --gd_convergence_tol FLOAT   Stop outer loop when |loss_change| < tol.
   --gd_steps_per_round INT     Adam steps per outer GD round.
+  --min_read_support FLOAT     Fix A: min n[t] to apply Dirichlet prior (0.0 = off).
 
 Inputs:
   SAMPLE_DIRS or SAMPLES_FOLDER (CONFIG) or --sample_dirs (CLI)
@@ -86,7 +87,9 @@ SAMPLES_FOLDER = ""                     # Option B: parent folder containing all
 #                                       #   leave "" to use SAMPLE_DIRS instead
 
 RESULTS_BASE        = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
-READ_TYPE           = "long"            # "long" (PacBio/ONT) | "short" (paired Illumina)
+READ_TYPE           = "long"            # informational only: "long" | "short" | "mixed"
+#                                       # the actual per-sample read type is handled by the
+#                                       # bash pipeline (run_multisample_joli.sh)
 EFF_LEN_MODE        = "uniform"         # "uniform" | "kallisto"
 CONVERGENCE_MODE    = "joli"            # "joli" (recommended for MAP) | "kallisto"
 MAX_EM_ROUNDS       = 10000             # max inner EM rounds per sample per GD round
@@ -96,6 +99,21 @@ GD_LR               = 0.01             # Adam learning rate for shared alpha
 ALPHA_INITIAL       = 1.0              # initial Dirichlet concentration (uniform prior)
 GD_CONVERGENCE_TOL  = 1e-6             # stop outer loop when |gd_loss_change| < this
 GD_STEPS_PER_ROUND  = 10               # Adam steps per outer GD round
+MIN_READ_SUPPORT    = 0.0              # Fix A flag: min expected reads n[t] to apply prior
+#                                      #   0.0 = disabled (prior always applied)
+#                                      #   try 0.1 to gate prior on real read support
+SAVE_SNAPSHOTS      = False             # True = save alpha + theta snapshots every
+#                                      #   SNAPSHOT_INTERVAL rounds to snapshots.pkl
+#                                      #   Used by plot_convergence_animation.py
+SNAPSHOT_INTERVAL   = 5               # save every N rounds (only when SAVE_SNAPSHOTS=True)
+LOOP_MODE           = "gd_wrapper"     # Training loop structure:
+#                                      #   "gd_wrapper" — GD outer loop, EM to convergence
+#                                      #                  per round (original JOLI behaviour)
+#                                      #   "em_wrapper" — EM convergence drives outer loop,
+#                                      #                  1 EM step + GD_STEPS_PER_ROUND Adam
+#                                      #                  steps per iteration (AT_code style)
+
+EXPERIMENT_COMMENT  = ""               # free-text note saved in experiment_description.log
 
 # ============================================================
 
@@ -169,6 +187,30 @@ def parse_args() -> argparse.Namespace:
         "--gd_steps_per_round", type=int, default=None,
         help="Adam steps per outer GD round."
     )
+    parser.add_argument(
+        "--min_read_support", type=float, default=None,
+        help="Fix A flag: min expected reads n[t] required to apply Dirichlet prior. "
+             "0.0 = disabled (prior always applied). Try 0.1 to reduce FP leakage."
+    )
+    parser.add_argument(
+        "--save_snapshots", default=None, choices=["true", "false"],
+        help="Save alpha+theta snapshots every --snapshot_interval rounds to snapshots.pkl."
+    )
+    parser.add_argument(
+        "--snapshot_interval", type=int, default=None,
+        help="Save a snapshot every this many rounds (only when --save_snapshots=true)."
+    )
+    parser.add_argument(
+        "--loop_mode", default=None, choices=["gd_wrapper", "em_wrapper"],
+        help="Training loop structure. "
+             "'gd_wrapper': GD outer loop, EM to convergence per round (default). "
+             "'em_wrapper': EM convergence drives outer loop, 1 EM step + N GD steps "
+             "per iteration (AT_code style)."
+    )
+    parser.add_argument(
+        "--experiment_comment", default=None,
+        help="Free-text description of this run, saved in experiment_description.log."
+    )
     return parser.parse_args()
 
 
@@ -218,27 +260,40 @@ def save_experiment_description(run_dir: str, sample_dirs: list,
                                 max_em_rounds: int, min_em_rounds: int,
                                 max_gd_rounds: int, gd_lr: float,
                                 alpha_initial: float, gd_convergence_tol: float,
-                                gd_steps_per_round: int) -> None:
+                                gd_steps_per_round: int,
+                                min_read_support: float,
+                                loop_mode: str,
+                                experiment_comment: str) -> None:
     """
     Write experiment_description.log with effective runtime values and sample list.
 
     Args:
-        run_dir            : str       -- Timestamped result directory.
-        sample_dirs        : list[str] -- Resolved sample directories.
-        eff_len_mode       : str       -- Effective length mode used.
-        convergence_mode   : str       -- Convergence criterion used.
-        max_em_rounds      : int       -- Max inner EM rounds.
-        min_em_rounds      : int       -- Min inner EM rounds.
-        max_gd_rounds      : int       -- Max outer GD iterations.
-        gd_lr              : float     -- Adam learning rate.
-        alpha_initial      : float     -- Initial Dirichlet concentration.
-        gd_convergence_tol : float     -- GD convergence tolerance.
-        gd_steps_per_round : int       -- Adam steps per GD round.
+        run_dir             : str       -- Timestamped result directory.
+        sample_dirs         : list[str] -- Resolved sample directories.
+        eff_len_mode        : str       -- Effective length mode used.
+        convergence_mode    : str       -- Convergence criterion used.
+        max_em_rounds       : int       -- Max inner EM rounds.
+        min_em_rounds       : int       -- Min inner EM rounds.
+        max_gd_rounds       : int       -- Max outer GD iterations.
+        gd_lr               : float     -- Adam learning rate.
+        alpha_initial       : float     -- Initial Dirichlet concentration.
+        gd_convergence_tol  : float     -- GD convergence tolerance.
+        gd_steps_per_round  : int       -- Adam steps per GD round.
+        min_read_support    : float     -- Fix A flag (0.0 = disabled).
+        experiment_comment  : str       -- Free-text description of this run.
     """
     lines = [
         f"Script: {os.path.abspath(__file__)}",
         f"Timestamp: {datetime.now().isoformat()}",
         "",
+    ]
+    if experiment_comment:
+        lines += [
+            "=== EXPERIMENT COMMENT ===",
+            experiment_comment,
+            "",
+        ]
+    lines += [
         "=== CONFIG (effective values — CLI overrides CONFIG when provided) ===",
         f"READ_TYPE:          {READ_TYPE}",
         f"EFF_LEN_MODE:       {eff_len_mode}",
@@ -250,6 +305,8 @@ def save_experiment_description(run_dir: str, sample_dirs: list,
         f"ALPHA_INITIAL:      {alpha_initial}",
         f"GD_CONVERGENCE_TOL: {gd_convergence_tol}",
         f"GD_STEPS_PER_ROUND: {gd_steps_per_round}",
+        f"MIN_READ_SUPPORT:   {min_read_support}",
+        f"LOOP_MODE:          {loop_mode}",
         "",
         "=== SAMPLES ===",
     ]
@@ -356,7 +413,12 @@ def main() -> None:
     alpha_initial      = args.alpha_initial      if args.alpha_initial      is not None else ALPHA_INITIAL
     gd_convergence_tol = args.gd_convergence_tol if args.gd_convergence_tol is not None else GD_CONVERGENCE_TOL
     gd_steps_per_round = args.gd_steps_per_round if args.gd_steps_per_round is not None else GD_STEPS_PER_ROUND
+    min_read_support   = args.min_read_support   if args.min_read_support   is not None else MIN_READ_SUPPORT
+    loop_mode          = args.loop_mode          or LOOP_MODE
+    save_snapshots     = (args.save_snapshots == "true") if args.save_snapshots is not None else SAVE_SNAPSHOTS
+    snapshot_interval  = args.snapshot_interval if args.snapshot_interval is not None else SNAPSHOT_INTERVAL
     results_base       = args.results_base or RESULTS_BASE
+    experiment_comment = args.experiment_comment if args.experiment_comment is not None else EXPERIMENT_COMMENT
 
     # --- Resolve sample directories ---
     # CLI --sample_dirs takes priority over CONFIG SAMPLE_DIRS / SAMPLES_FOLDER.
@@ -390,20 +452,28 @@ def main() -> None:
     print(f"  alpha_initial    : {alpha_initial}")
     print(f"  gd_conv_tol      : {gd_convergence_tol}")
     print(f"  gd_steps/em_round   : {gd_steps_per_round}")
+    print(f"  min_read_support    : {min_read_support}  (Fix A: 0.0 = disabled)")
+    print(f"  loop_mode           : {loop_mode}")
+    print(f"  save_snapshots      : {save_snapshots}  (interval={snapshot_interval})")
+    if experiment_comment:
+        print(f"  comment             : {experiment_comment}")
     print("=" * 60)
 
     # Save experiment description and code snapshot before running
     save_experiment_description(
         run_dir, sample_dirs,
-        eff_len_mode       = eff_len_mode,
-        convergence_mode   = convergence_mode,
-        max_em_rounds      = max_em_rounds,
-        min_em_rounds      = min_em_rounds,
-        max_gd_rounds      = max_gd_rounds,
-        gd_lr              = gd_lr,
-        alpha_initial      = alpha_initial,
-        gd_convergence_tol = gd_convergence_tol,
-        gd_steps_per_round = gd_steps_per_round,
+        eff_len_mode        = eff_len_mode,
+        convergence_mode    = convergence_mode,
+        max_em_rounds       = max_em_rounds,
+        min_em_rounds       = min_em_rounds,
+        max_gd_rounds       = max_gd_rounds,
+        gd_lr               = gd_lr,
+        alpha_initial       = alpha_initial,
+        gd_convergence_tol  = gd_convergence_tol,
+        gd_steps_per_round  = gd_steps_per_round,
+        min_read_support    = min_read_support,
+        loop_mode           = loop_mode,
+        experiment_comment  = experiment_comment,
     )
     save_code_snapshot(run_dir)
 
@@ -420,6 +490,10 @@ def main() -> None:
         alpha_initial      = alpha_initial,
         gd_convergence_tol = gd_convergence_tol,
         gd_steps_per_round = gd_steps_per_round,
+        min_read_support   = min_read_support,
+        loop_mode          = loop_mode,
+        save_snapshots     = save_snapshots,
+        snapshot_interval  = snapshot_interval,
     )
 
     results = ms.run()

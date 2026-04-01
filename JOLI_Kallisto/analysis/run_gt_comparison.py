@@ -8,6 +8,16 @@ Auto-discovers samples inside the experiment folder. For each sample that has
 a matching entry in SAMPLE_GT_MAP, loads both files and computes Spearman,
 Pearson, MAE, RMSE, Bray-Curtis, and JS-distance metrics.
 
+Three metric sets are reported per sample:
+  1. All transcripts       — outer join of predicted and GT (includes TN pairs)
+  2. Active universe       — GT transcripts ∪ non-zero predicted transcripts
+                             (excludes true-negative (0,0) pairs; fair apples-to-
+                             apples comparison between methods with different index
+                             sizes, e.g. LK vs JK MS)
+  3. GT non-zero only      — only transcripts present in ground truth
+
+A contingency table (TP / FP / FN / TN counts) is printed before the metrics.
+
 Usage:
     # Compare one experiment against ground truth:
     python analysis/run_gt_comparison.py exprmnt_2026_03_28__00_29_23
@@ -50,8 +60,13 @@ RESULTS_BASE = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
 # Map sample subfolder name → absolute path to ground truth TSV.
 # Ground truth TSV format: CSV with columns (unnamed_index, transcript_name, tpm)
 SAMPLE_GT_MAP = {
+    # Long-read (PacBio) simulated samples
     "sim1": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample1_gt.tsv",
     "sim2": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample2_gt.tsv",
+    # Short-read (Illumina) simulated samples — same expression profile as sim1/sim2,
+    # different read technology. Map to the same ground truth files.
+    "sim_sr_s1": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample1_gt.tsv",
+    "sim_sr_s2": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample2_gt.tsv",
 }
 
 ABUNDANCE_FILE = "abundance.tsv"
@@ -150,6 +165,26 @@ def fmt(x: float) -> str:
     return "nan" if pd.isna(x) else f"{x:.6f}"
 
 
+def compute_metrics(x: np.ndarray, y: np.ndarray) -> dict:
+    """
+    Compute all scalar metrics between two aligned TPM arrays.
+
+    Args:
+        x : np.ndarray -- predicted TPM values.
+        y : np.ndarray -- ground truth TPM values.
+
+    Returns:
+        dict with keys: spearman, pearson, mae, rmse, bray_curtis.
+    """
+    return {
+        "spearman":    spearman_corr(x, y),
+        "pearson":     pearson_corr(x, y),
+        "mae":         mae(x, y),
+        "rmse":        rmse(x, y),
+        "bray_curtis": bray_curtis(x, y),
+    }
+
+
 # ============================================================
 # Per-sample comparison
 # ============================================================
@@ -158,8 +193,17 @@ def compare_sample(abund_path: Path, gt_path: Path, sample: str) -> dict:
     """
     Compare one sample's abundance.tsv against its ground truth.
 
-    Merges on transcript_id (outer join, zeros for missing), then computes
-    metrics on (a) all transcripts and (b) transcripts non-zero in ground truth.
+    Computes three metric sets:
+      1. all        — outer join of all predicted and GT transcripts (includes TN pairs)
+      2. active     — GT transcripts ∪ non-zero predicted transcripts only
+                      (excludes true-negative (0,0) pairs for fair cross-method comparison)
+      3. gt_nonzero — only transcripts with non-zero ground truth TPM
+
+    Also computes a contingency table:
+      TP = pred > 0 AND gt > 0
+      FP = pred > 0 AND gt = 0  (false positive — predicted non-zero, not in GT)
+      FN = pred = 0 AND gt > 0  (false negative — in GT, predicted zero)
+      TN = pred = 0 AND gt = 0  (true negative  — zero in both)
 
     Args:
         abund_path : Path -- path to abundance.tsv.
@@ -167,55 +211,110 @@ def compare_sample(abund_path: Path, gt_path: Path, sample: str) -> dict:
         sample     : str  -- sample name (for printing).
 
     Returns:
-        dict with all computed metrics.
+        dict with all computed metrics and contingency counts.
     """
     abund = read_abundance(abund_path)
     gt    = read_ground_truth(gt_path)
 
-    merged = abund.merge(gt, on="transcript_id", how="outer",
-                         suffixes=("_pred", "_gt"))
-    merged["tpm_pred"] = merged["tpm_pred"].fillna(0.0)
-    merged["tpm_gt"]   = merged["tpm_gt"].fillna(0.0)
+    # ----------------------------------------------------------
+    # Universe 1: ALL transcripts (outer join, fill NA with 0)
+    # Includes true-negative (0,0) pairs — inflated for methods
+    # that output large reference files (e.g. JK MS with 218K).
+    # ----------------------------------------------------------
+    merged_all = abund.merge(gt, on="transcript_id", how="outer",
+                             suffixes=("_pred", "_gt"))
+    merged_all["tpm_pred"] = merged_all["tpm_pred"].fillna(0.0)
+    merged_all["tpm_gt"]   = merged_all["tpm_gt"].fillna(0.0)
 
-    x_all = merged["tpm_pred"].to_numpy()
-    y_all = merged["tpm_gt"].to_numpy()
+    pred_nz = merged_all["tpm_pred"] > 0
+    gt_nz   = merged_all["tpm_gt"]   > 0
 
-    # Restrict to transcripts with non-zero ground truth
-    gt_nonzero = merged["tpm_gt"] > 0
-    x_gt = merged.loc[gt_nonzero, "tpm_pred"].to_numpy()
-    y_gt = merged.loc[gt_nonzero, "tpm_gt"].to_numpy()
+    # Contingency table counts
+    n_tp = int(( pred_nz &  gt_nz).sum())   # true positive
+    n_fp = int(( pred_nz & ~gt_nz).sum())   # false positive
+    n_fn = int((~pred_nz &  gt_nz).sum())   # false negative
+    n_tn = int((~pred_nz & ~gt_nz).sum())   # true negative
+    n_total_all = len(merged_all)
 
-    # Transcript count stats
-    n_pred_nonzero = int((merged["tpm_pred"] > 0).sum())
-    n_gt_nonzero   = int((merged["tpm_gt"]   > 0).sum())
-    n_both_nonzero = int(((merged["tpm_pred"] > 0) & (merged["tpm_gt"] > 0)).sum())
-    n_total        = len(merged)
+    x_all = merged_all["tpm_pred"].to_numpy()
+    y_all = merged_all["tpm_gt"].to_numpy()
+
+    # ----------------------------------------------------------
+    # Universe 2: ACTIVE — GT ∪ non-zero predicted
+    # Excludes TN pairs. Fair comparison across methods regardless
+    # of index size (LK already behaves this way since it only
+    # writes non-zero transcripts to its output file).
+    # ----------------------------------------------------------
+    abund_nz = abund[abund["tpm"] > 0]
+    merged_active = abund_nz.merge(gt, on="transcript_id", how="outer",
+                                   suffixes=("_pred", "_gt"))
+    merged_active["tpm_pred"] = merged_active["tpm_pred"].fillna(0.0)
+    merged_active["tpm_gt"]   = merged_active["tpm_gt"].fillna(0.0)
+
+    x_active    = merged_active["tpm_pred"].to_numpy()
+    y_active    = merged_active["tpm_gt"].to_numpy()
+    n_active    = len(merged_active)
+
+    # ----------------------------------------------------------
+    # Universe 3: GT non-zero only
+    # Restricts to transcripts present in the simulation GT.
+    # ----------------------------------------------------------
+    gt_nonzero_mask = merged_all["tpm_gt"] > 0
+    x_gt = merged_all.loc[gt_nonzero_mask, "tpm_pred"].to_numpy()
+    y_gt = merged_all.loc[gt_nonzero_mask, "tpm_gt"].to_numpy()
+    n_gt_nonzero = int(gt_nonzero_mask.sum())
 
     results = {
-        "sample":          sample,
-        "n_total":         n_total,
-        "n_pred_nonzero":  n_pred_nonzero,
-        "n_gt_nonzero":    n_gt_nonzero,
-        "n_both_nonzero":  n_both_nonzero,
-        # All-transcript metrics
-        "all_spearman":    spearman_corr(x_all, y_all),
-        "all_pearson":     pearson_corr(x_all, y_all),
-        "all_mae":         mae(x_all, y_all),
-        "all_rmse":        rmse(x_all, y_all),
-        "all_bray_curtis": bray_curtis(x_all, y_all),
-        # GT-nonzero metrics (more meaningful — only transcripts present in simulation)
-        "gt_spearman":     spearman_corr(x_gt, y_gt),
-        "gt_pearson":      pearson_corr(x_gt, y_gt),
-        "gt_mae":          mae(x_gt, y_gt),
-        "gt_rmse":         rmse(x_gt, y_gt),
-        "gt_bray_curtis":  bray_curtis(x_gt, y_gt),
+        "sample":       sample,
+        # Contingency table
+        "n_total_all":  n_total_all,
+        "n_tp":         n_tp,
+        "n_fp":         n_fp,
+        "n_fn":         n_fn,
+        "n_tn":         n_tn,
+        # Universe sizes
+        "n_active":     n_active,
+        "n_gt_nonzero": n_gt_nonzero,
+        # Metrics: all transcripts
+        **{f"all_{k}": v for k, v in compute_metrics(x_all, y_all).items()},
+        # Metrics: active universe (GT ∪ non-zero pred)
+        **{f"active_{k}": v for k, v in compute_metrics(x_active, y_active).items()},
+        # Metrics: GT non-zero only
+        **{f"gt_{k}": v for k, v in compute_metrics(x_gt, y_gt).items()},
     }
     return results
+
+
+# ============================================================
+# Formatting
+# ============================================================
+
+def _metric_block(prefix: str, results: dict) -> list:
+    """
+    Build a list of formatted metric lines for a given prefix (all/active/gt).
+
+    Args:
+        prefix  : str  -- one of "all", "active", "gt".
+        results : dict -- output of compare_sample().
+
+    Returns:
+        list[str] -- formatted lines (no trailing newline).
+    """
+    return [
+        f"  Spearman    : {fmt(results[f'{prefix}_spearman'])}",
+        f"  Pearson     : {fmt(results[f'{prefix}_pearson'])}",
+        f"  MAE         : {fmt(results[f'{prefix}_mae'])}",
+        f"  RMSE        : {fmt(results[f'{prefix}_rmse'])}",
+        f"  Bray-Curtis : {fmt(results[f'{prefix}_bray_curtis'])}",
+    ]
 
 
 def format_results(results: dict) -> str:
     """
     Format a results dict into a human-readable string block.
+
+    Includes contingency table and three metric sections, each labelled
+    with the number of transcripts in that universe.
 
     Args:
         results : dict -- output of compare_sample().
@@ -223,26 +322,39 @@ def format_results(results: dict) -> str:
     Returns:
         str -- formatted report block.
     """
+    n_all    = results["n_total_all"]
+    n_active = results["n_active"]
+    n_gt     = results["n_gt_nonzero"]
+    tp       = results["n_tp"]
+    fp       = results["n_fp"]
+    fn       = results["n_fn"]
+    tn       = results["n_tn"]
+
     lines = [
-        f"  Sample            : {results['sample']}",
-        f"  Total transcripts : {results['n_total']}",
-        f"  Non-zero pred     : {results['n_pred_nonzero']}",
-        f"  Non-zero GT       : {results['n_gt_nonzero']}",
-        f"  Non-zero in both  : {results['n_both_nonzero']}",
+        f"  Sample : {results['sample']}",
         "",
-        "  --- Metrics (all transcripts) ---",
-        f"  Spearman    : {fmt(results['all_spearman'])}",
-        f"  Pearson     : {fmt(results['all_pearson'])}",
-        f"  MAE         : {fmt(results['all_mae'])}",
-        f"  RMSE        : {fmt(results['all_rmse'])}",
-        f"  Bray-Curtis : {fmt(results['all_bray_curtis'])}",
+        # --- Contingency table ---
+        "  Contingency table",
+        "  " + "-" * 50,
+        f"  True  positives  (pred>0, GT>0) : {tp:>10,}",
+        f"  False positives  (pred>0, GT=0) : {fp:>10,}",
+        f"  False negatives  (pred=0, GT>0) : {fn:>10,}",
+        f"  True  negatives  (pred=0, GT=0) : {tn:>10,}",
+        f"  Total (outer join universe)     : {n_all:>10,}",
         "",
-        "  --- Metrics (GT non-zero transcripts only) ---",
-        f"  Spearman    : {fmt(results['gt_spearman'])}",
-        f"  Pearson     : {fmt(results['gt_pearson'])}",
-        f"  MAE         : {fmt(results['gt_mae'])}",
-        f"  RMSE        : {fmt(results['gt_rmse'])}",
-        f"  Bray-Curtis : {fmt(results['gt_bray_curtis'])}",
+        # --- Metrics: all ---
+        f"  --- Metrics (all transcripts, N={n_all:,}) ---",
+        *_metric_block("all", results),
+        "",
+        # --- Metrics: active universe ---
+        f"  --- Metrics (active universe: GT ∪ non-zero pred, N={n_active:,}) ---",
+        "  (excludes true-negative (0,0) pairs — fair cross-method comparison)",
+        *_metric_block("active", results),
+        "",
+        # --- Metrics: GT non-zero only ---
+        f"  --- Metrics (GT non-zero transcripts only, N={n_gt:,}) ---",
+        "  (only transcripts present in the simulation ground truth)",
+        *_metric_block("gt", results),
     ]
     return "\n".join(lines)
 
@@ -292,7 +404,9 @@ def run_for_experiment(exp: str, results_base: Path, sample_gt_map: dict) -> Non
             print(f"\n[SKIP] {sample} — GT file not found: {gt_path}")
             continue
 
-        print(f"\n--- {sample} ---")
+        print(f"\n{'=' * 60}")
+        print(f"{sample}")
+        print("=" * 60)
         results = compare_sample(abund_path, gt_path, sample)
         block   = format_results(results)
         print(block)

@@ -29,6 +29,8 @@ Outputs:
   - loss_history : list[float] — GD loss per Adam iteration.
 """
 
+import math
+
 import numpy as np
 import torch
 import torch.optim as optim
@@ -37,6 +39,12 @@ from torch.distributions import Dirichlet
 
 # Small floor applied to theta before log() to avoid log(0)
 THETA_FLOOR = 1e-10
+
+# Minimum alpha value kept strictly positive throughout training.
+# Prevents digamma(alpha→0) = -inf from producing NaN gradients when
+# some transcripts are consistently zero across samples (e.g. under Fix A).
+# log(ALPHA_MIN) sets the lower bound on log_alpha after each Adam step.
+ALPHA_MIN = 1e-6
 
 
 class DirichletOptimizer:
@@ -127,10 +135,34 @@ class DirichletOptimizer:
         loss_history = []
         prev_loss    = None
 
+        log_alpha_floor = math.log(ALPHA_MIN)
+
         for iteration in range(max_iterations):
             self.optimizer.zero_grad()
 
-            alpha = torch.exp(self.log_alpha)                  # shape (T,), always > 0
+            # Clamp log_alpha BEFORE the forward pass so alpha is always >= ALPHA_MIN.
+            # Must happen here (not after optimizer.step()) because:
+            #   1. torch.clamp(NaN, min=x) returns NaN — clamping after a corrupted
+            #      step does nothing.
+            #   2. digamma(alpha → 0) = -inf → NaN gradient → corrupts log_alpha.
+            # Clamping before each forward pass breaks the NaN chain at its source.
+            # Also replaces any NaN/inf that may have crept in from previous rounds.
+            with torch.no_grad():
+                bad = ~torch.isfinite(self.log_alpha)
+                if bad.any():
+                    print(f"[DirichletOptimizer] iter {iteration}: "
+                          f"resetting {bad.sum().item()} NaN/inf log_alpha → floor")
+                    self.log_alpha[bad] = log_alpha_floor
+                    # Reset Adam state for corrupted parameters so momentum does not
+                    # carry forward the invalid gradient signal
+                    for param_state in self.optimizer.state.values():
+                        if "exp_avg" in param_state:
+                            param_state["exp_avg"][bad]    = 0.0
+                        if "exp_avg_sq" in param_state:
+                            param_state["exp_avg_sq"][bad] = 0.0
+                self.log_alpha.clamp_(min=log_alpha_floor)
+
+            alpha = torch.exp(self.log_alpha)                  # shape (T,), always >= ALPHA_MIN
 
             # Dirichlet log-likelihood: sum log p(theta_s | alpha) over all samples
             dirichlet       = Dirichlet(alpha)

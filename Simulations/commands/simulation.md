@@ -10,7 +10,7 @@ Always read `code/Simulations/plans/simulation_pipeline_plan.md` and `code/Simul
 
 ## Environment Facts (verified)
 
-- **Conda env:** `NanoCount_5_shree`
+- **Conda env:** `lrgsp_simulation`
 - **Packages in env:** numpy, pandas, scipy, pysam, biopython, matplotlib, seaborn, tqdm, nanocount, torch, pyro-ppl
 - **Missing from env — load as modules in SLURM scripts:**
   - `minimap2/2.29`
@@ -55,7 +55,7 @@ When invoked:
 ## Step 2 — Reference Preparation
 
 ```bash
-conda activate NanoCount_5_shree
+conda activate lrgsp_simulation
 python code/Simulations/src/prepare_reference.py \
     --genome $reference_genome \
     --gtf $reference_gtf \
@@ -130,7 +130,7 @@ squeue -u $USER
 
 Once jobs complete:
 ```bash
-conda activate NanoCount_5_shree
+conda activate lrgsp_simulation
 python code/Simulations/src/analyze_outputs.py --run_dir $run_dir
 ```
 
@@ -149,4 +149,4 @@ Report:
 - Every run saves to `files/results/exprmnt_{timestamp}/`
 - `runtime.txt` and `code_snapshot/` are mandatory in every result folder
 - First line of `running.log` must be `Script: <path/to/script>`
-- Do not modify `NanoCount_5_shree` — if a package is missing, flag it to the user
+- Do not modify `lrgsp_simulation` — if a package is missing, flag it to the user

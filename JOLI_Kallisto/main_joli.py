@@ -42,6 +42,7 @@ Run:
 
 import argparse
 import os
+import pickle
 import sys
 import time
 
@@ -65,6 +66,10 @@ DEFAULT_MIN_ROUNDS    = 50
 DEFAULT_EM_TYPE            = "plain"     # "plain" | "MAP" | "VI"
 DEFAULT_CONVERGENCE_MODE   = "kallisto"  # "kallisto" (raw count threshold, matches LK)
                                          # "joli"     (normalized theta, faster, for MAP/VI)
+SAVE_SNAPSHOTS             = False       # True = save theta snapshots every SNAPSHOT_INTERVAL
+#                                        #   rounds to <output_dir>/theta_snapshots.pkl
+#                                        #   Used by plot_convergence_animation.py
+SNAPSHOT_INTERVAL          = 5          # save a snapshot every N EM rounds
 # ============================================================
 
 
@@ -115,6 +120,15 @@ def parse_args() -> argparse.Namespace:
              "lr-kallisto exactly, recommended for plain EM comparison); "
              "'joli'=normalized theta threshold (faster, recommended for MAP/VI)."
     )
+    parser.add_argument(
+        "--save_snapshots", default=str(SAVE_SNAPSHOTS).lower(),
+        choices=["true", "false"],
+        help="Save theta snapshots every --snapshot_interval rounds to theta_snapshots.pkl."
+    )
+    parser.add_argument(
+        "--snapshot_interval", type=int, default=SNAPSHOT_INTERVAL,
+        help="Save a theta snapshot every N EM rounds (only used when --save_snapshots true)."
+    )
     return parser.parse_args()
 
 
@@ -154,7 +168,12 @@ def main() -> None:
     print(f"  max_em_rounds    : {args.max_em_rounds}")
     print(f"  min_rounds       : {args.min_rounds}")
     print(f"  convergence_mode : {args.convergence_mode}")
+    print(f"  save_snapshots   : {args.save_snapshots}")
+    print(f"  snapshot_interval: {args.snapshot_interval}")
     print("=" * 60)
+
+    # Resolve save_snapshots flag (CLI passes string "true"/"false")
+    save_snapshots = args.save_snapshots.lower() == "true"
 
     # --- Step 1.1: Load TCC data ---
     tcc_data = load_tcc_data(sample_dir)
@@ -178,14 +197,25 @@ def main() -> None:
 
     em = JoliEM(tcc_data, weight_data)
     em_result = em.run(
-        max_em_rounds=args.max_em_rounds,
-        min_rounds=args.min_rounds,
-        convergence_mode=args.convergence_mode,
+        max_em_rounds     = args.max_em_rounds,
+        min_rounds        = args.min_rounds,
+        convergence_mode  = args.convergence_mode,
+        snapshot_interval = args.snapshot_interval if save_snapshots else 0,
     )
 
     print(f"\n[main_joli] EM finished: "
           f"rounds={em_result.n_rounds}, converged={em_result.converged}, "
           f"nonzero_tx={int((em_result.alpha > 0).sum())}")
+
+    # --- Save theta snapshots (if enabled) ---
+    if save_snapshots and em_result.snapshots:
+        snap_path = os.path.join(output_dir, "theta_snapshots.pkl")
+        with open(snap_path, "wb") as fh:
+            pickle.dump({
+                "transcript_names": tcc_data.transcript_names,
+                "snapshots":        em_result.snapshots,   # list of (round_num, theta)
+            }, fh)
+        print(f"[main_joli] Snapshots saved ({len(em_result.snapshots)} frames): {snap_path}")
 
     # --- Step 1.4: Write abundance.tsv ---
     output_path = os.path.join(output_dir, "abundance.tsv")

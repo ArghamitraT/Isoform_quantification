@@ -81,10 +81,16 @@ class EMResult:
 
         converged (bool): True if the convergence criterion was satisfied before
                           reaching max_em_rounds.
+
+        snapshots (list | None): When snapshot_interval > 0 in run(), a list of
+                   (round_num, theta) tuples saved every snapshot_interval rounds
+                   plus the final theta. theta is normalized (sums to ~1).
+                   None when snapshots are disabled (snapshot_interval=0).
     """
-    alpha: np.ndarray
-    n_rounds: int
+    alpha:     np.ndarray
+    n_rounds:  int
     converged: bool
+    snapshots: list = None
 
 
 # ============================================================
@@ -197,6 +203,12 @@ class JoliEM:
             self._active_tx_mask[self._multi_flat_tx] = True
         n_active = int(self._active_tx_mask.sum())
 
+        # Total multi-tx read count — fixed (depends only on data, not theta).
+        # Cached here so both run() and em_step() can use it without recomputing.
+        self._total_multi_reads = (
+            float(self._multi_ec_counts.sum()) if len(self._multi_ec_counts) > 0 else 0.0
+        )
+
         print(f"[JoliEM] Pre-processed: {len(single_ec_ids)} single-tx ECs, "
               f"{self._n_multi_ecs} multi-tx ECs, "
               f"{len(self._multi_flat_tx)} total EC-transcript positions, "
@@ -258,6 +270,8 @@ class JoliEM:
         convergence_mode: str   = "kallisto",
         alpha_prior: np.ndarray = None,
         init_theta: np.ndarray  = None,
+        min_read_support: float = 0.0,
+        snapshot_interval: int  = 0,
     ) -> EMResult:
         """
         Run EM until convergence or max_em_rounds, then zero small abundances.
@@ -279,25 +293,41 @@ class JoliEM:
             Converges faster. Small transcripts are left to the Dirichlet prior
             in MAP/VI mode rather than being driven to zero by more EM rounds.
 
+        Fix A — gating the Dirichlet prior on read support (min_read_support):
+            When min_read_support > 0.0, the prior is only applied to transcripts
+            where the E-step produced n[t] >= min_read_support expected reads.
+            Transcripts below the threshold get plain EM (no prior) — plain EM
+            naturally drives multi-mapping leakage transcripts toward zero.
+            When min_read_support = 0.0 (default), the prior is always applied
+            (original behaviour, Fix A disabled).
+
         Args:
-            max_em_rounds    : int         -- Maximum EM iterations (default: 10000).
-            min_rounds       : int         -- Minimum iterations before convergence check
-                                             (default: 50).
-            convergence_mode : str         -- "kallisto" (raw count threshold, matches LK)
-                                             or "joli" (normalized theta threshold, faster).
-            alpha_prior      : np.ndarray  -- Optional Dirichlet concentration vector,
-                                             shape [n_transcripts]. When provided, the
-                                             M-step uses the posterior mean:
-                                               theta_new = (n + alpha) / sum(n + alpha)
-                                             instead of plain EM (n / sum(n)).
-                                             Pass None for plain EM (default).
-            init_theta       : np.ndarray  -- Optional starting theta, shape [n_transcripts].
-                                             When provided (e.g. carried over from a previous
-                                             GD round), EM starts from this theta instead of
-                                             uniform. Pass None to start from uniform (default).
+            max_em_rounds     : int         -- Maximum EM iterations (default: 10000).
+            min_rounds        : int         -- Minimum iterations before convergence check
+                                              (default: 50).
+            convergence_mode  : str         -- "kallisto" (raw count threshold, matches LK)
+                                              or "joli" (normalized theta threshold, faster).
+            alpha_prior       : np.ndarray  -- Optional Dirichlet concentration vector,
+                                              shape [n_transcripts]. When provided, the
+                                              M-step uses the posterior mean:
+                                                theta_new = (n + alpha) / sum(n + alpha)
+                                              instead of plain EM (n / sum(n)).
+                                              Pass None for plain EM (default).
+            init_theta        : np.ndarray  -- Optional starting theta, shape [n_transcripts].
+                                              When provided (e.g. carried over from a previous
+                                              GD round), EM starts from this theta instead of
+                                              uniform. Pass None to start from uniform (default).
+            min_read_support  : float       -- Fix A flag. Minimum expected read count n[t]
+                                              required to apply alpha_prior in the M-step.
+                                              0.0 = disabled (prior always applied).
+                                              Typical value to try: 0.1 reads.
+            snapshot_interval : int         -- Save a (round_num, theta) snapshot every
+                                              this many rounds. 0 = disabled (default).
+                                              Used by plot_convergence_animation.py to
+                                              animate convergence across training rounds.
 
         Returns:
-            EMResult -- alpha (raw expected counts), n_rounds, converged.
+            EMResult -- alpha (raw expected counts), n_rounds, converged, snapshots.
         """
         if convergence_mode not in ("kallisto", "joli"):
             raise ValueError(
@@ -314,7 +344,7 @@ class JoliEM:
 
         # Total multi-tx reads — needed for kallisto mode convergence check and
         # for scaling theta back to raw counts at the end.
-        total_multi_reads = float(self._multi_ec_counts.sum()) if self._n_multi_ecs > 0 else 0.0
+        total_multi_reads = self._total_multi_reads
 
         print(f"\n[JoliEM] Starting EM: max_rounds={max_em_rounds}, "
               f"min_rounds={min_rounds}, convergence_mode={convergence_mode}, "
@@ -339,15 +369,30 @@ class JoliEM:
                             dtype=np.float64)
         converged = False
 
+        # Snapshot list: populated when snapshot_interval > 0
+        snapshots = [] if snapshot_interval > 0 else None
+
+        # Record initialization snapshot (round=-1) before any EM step.
+        # theta at this point is uniform 1/T.
+        if snapshots is not None:
+            snapshots.append((-1, theta.copy()))
+
         for round_num in range(max_em_rounds):
             # One E+M step
             n = self._em_step(theta)
 
             # M-step: posterior-mean EM (with Dirichlet prior) or plain EM
             if alpha_prior is not None:
-                # Posterior mean: theta_new[t] = (n[t] + alpha[t]) / sum(n + alpha)
-                # Always valid (numerator >= 0) as long as alpha > 0.
-                numerator = n + alpha_prior
+                if min_read_support > 0.0:
+                    # Fix A: gate the prior on read support.
+                    # Transcripts with n[t] >= min_read_support get the MAP update;
+                    # those below threshold get plain EM — natural convergence toward
+                    # zero eliminates multi-mapping leakage without harming true TPs.
+                    has_support = n >= min_read_support
+                    numerator = np.where(has_support, n + alpha_prior, n)
+                else:
+                    # Fix A disabled (default): prior always applied.
+                    numerator = n + alpha_prior
             else:
                 numerator = n
 
@@ -387,6 +432,10 @@ class JoliEM:
                 ))
 
             theta = theta_new
+
+            # Save snapshot every snapshot_interval rounds
+            if snapshots is not None and round_num % snapshot_interval == 0:
+                snapshots.append((round_num, theta.copy()))
 
             # Log how many transcripts are being monitored (first 3 rounds only)
             if round_num < 3:
@@ -454,4 +503,84 @@ class JoliEM:
         print(f"[JoliEM] Done. Rounds={round_num + 1}, "
               f"nonzero_transcripts={int((alpha > 0).sum())}")
 
-        return EMResult(alpha=alpha, n_rounds=round_num + 1, converged=converged)
+        # Always append the final theta as the last snapshot
+        if snapshots is not None:
+            snapshots.append((round_num + 1, theta.copy()))
+
+        return EMResult(alpha=alpha, n_rounds=round_num + 1, converged=converged,
+                        snapshots=snapshots)
+
+    def em_step(
+        self,
+        theta: np.ndarray,
+        alpha_prior: np.ndarray = None,
+        min_read_support: float = 0.0,
+        convergence_mode: str   = "joli",
+    ) -> tuple:
+        """
+        Run one combined E+M step without zeroing or finalRound.
+
+        Used exclusively by MultiSampleJoliEM in em_wrapper (AT_code) mode,
+        where 1 EM step per sample is interleaved with N GD steps per outer
+        iteration, and the outer loop runs until EM convergence.
+
+        Unlike run(), this method:
+          - Does NOT zero small transcripts (no ALPHA_LIMIT thresholding).
+          - Does NOT run finalRound.
+          - Does NOT add single-tx raw counts to alpha.
+        Those finalisation steps happen once after the outer loop ends, via a
+        single call to run(max_em_rounds=1, init_theta=...) in write_results().
+
+        Args:
+            theta            : np.ndarray  -- current normalized abundances,
+                                             shape [n_transcripts].
+            alpha_prior      : np.ndarray  -- optional Dirichlet prior,
+                                             shape [n_transcripts]. None = plain EM.
+            min_read_support : float       -- Fix A threshold. Prior only applied
+                                             when n[t] >= this. 0.0 = disabled.
+            convergence_mode : str         -- "joli" (normalized theta change) or
+                                             "kallisto" (raw expected count change).
+
+        Returns:
+            tuple(np.ndarray, int):
+                theta_new : updated normalized abundances, shape [n_transcripts].
+                n_changed : number of monitored transcripts still changing.
+                            0 means this sample has converged for this step.
+        """
+        # E+M step: compute expected counts from multi-tx ECs
+        n = self._em_step(theta)
+
+        # M-step: MAP posterior mean (with prior) or plain EM (without)
+        if alpha_prior is not None:
+            if min_read_support > 0.0:
+                # Fix A: gate prior on read support
+                has_support = n >= min_read_support
+                numerator = np.where(has_support, n + alpha_prior, n)
+            else:
+                numerator = n + alpha_prior
+        else:
+            numerator = n
+
+        # Zero out transcripts with no reads in this sample
+        numerator[~self._active_tx_mask] = 0.0
+
+        total = numerator.sum()
+        theta_new = numerator / total if total > 0 else theta.copy()
+
+        # Convergence check — mirrors run() logic exactly
+        if convergence_mode == "kallisto":
+            alpha_new = theta_new * self._total_multi_reads
+            alpha_old = theta     * self._total_multi_reads
+            n_changed = int(np.sum(
+                (alpha_new > ALPHA_CHANGE_LIMIT) &
+                (np.abs(alpha_new - alpha_old) /
+                 np.maximum(alpha_new, TOLERANCE) > ALPHA_CHANGE)
+            ))
+        else:
+            n_changed = int(np.sum(
+                (theta_new > 1e-10) &
+                (np.abs(theta_new - theta) /
+                 np.maximum(theta_new, TOLERANCE) > ALPHA_CHANGE)
+            ))
+
+        return theta_new, n_changed

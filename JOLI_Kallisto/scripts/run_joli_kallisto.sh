@@ -41,14 +41,15 @@ T2G_FILE="/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kal
 # Set to 1 to build/rebuild the index from TRANSCRIPTOME_FASTA before running samples.
 # Set to 0 to skip and use the existing INDEX_FILE.
 BUILD_INDEX=0
-# k-mer size: 63 for long-read (PacBio/ONT), 31 for short-read
-KMER_SIZE=63
+# k-mer sizes: long-read uses larger k (63); short-read uses standard k (31).
+# Both are used automatically based on per-sample read_type (see SAMPLES below).
+KMER_SIZE_LONG=63    # for long reads (PacBio/ONT)
+KMER_SIZE_SHORT=31   # for short reads (paired Illumina)
 
 # --- Run settings ---
-READ_TYPE="long"     # "long" (PacBio/ONT) or "short" (paired Illumina)
-PLATFORM="PacBio"    # used when READ_TYPE=long: "PacBio" or "ONT"
+PLATFORM="PacBio"    # long-read platform: "PacBio" or "ONT" (applies to all long-read samples)
 THREADS=32
-THRESHOLD=0.8        # kallisto bus alignment threshold
+THRESHOLD=0.8        # kallisto bus alignment threshold (long-read only)
 
 # --- Python / conda ---
 CONDA_ENV="Joli_kallisto"
@@ -66,22 +67,32 @@ EFF_LEN_MODE="uniform"     # "uniform" (Phase 1) | "kallisto" (Phase 2+)
                            # (no fragment-length distribution available for long reads).
                            # JK must match this or correlation drops from ~0.99 to ~0.89.
 EM_TYPE="plain"           # "plain" | "MAP" | "VI"
+SAVE_SNAPSHOTS=true    # true  = save theta snapshots every SNAPSHOT_INTERVAL rounds
+                        #         (needed for plot_convergence_animation.py)
+SNAPSHOT_INTERVAL=5    # save a snapshot every N rounds (only used when SAVE_SNAPSHOTS=true)
+
+# --- Experiment comment ---
+# Free-text description saved to experiment_description.log for this run.
+# Describe what you are testing, what changed, or what you expect.
+EXPERIMENT_COMMENT="we are running JK with snapshot on;now records the iteration 0 before any calculation"
 
 # --- Samples ---
-# Format (long-read):  "sample_name  reads_dir  reads_file"
-# Format (short-read): "sample_name  reads_dir  R1_file  R2_file"
+# Each entry: "sample_name  read_type  reads_dir  file1  [file2]"
+#   read_type = "long"  → single file, --long --threshold flags, KMER_SIZE_LONG
+#   read_type = "short" → two files (R1 R2), standard paired-end, KMER_SIZE_SHORT
+# Mixed long + short samples in the same array is supported.
 SAMPLES=(
-    # "toy  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  toy.fastq"
-    # "toy_11reads  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  toy_11reads.fastq"
-    # "ds_52_furtherDownsampled  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  ds_52_furtherDownsampled.fastq"
-    # "sim2  /path/to/sim/reads  PacBio.simulated.fasta"
-    # "flnc_01  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
-    # "flnc_02  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
-    # "flnc_03  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_03.fastq"
-    # "flnc_31  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_31.fastq"
-    # "flnc_32  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_32.fastq"
-    "sim1  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
-    "sim2  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
+    # Long-read examples:
+    # "toy       long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  toy.fastq"
+    # "flnc_01   long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
+    # "flnc_02   long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
+    # Short-read examples:
+    # "sim_sr_s1  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_short_1.fq  ds_100_num1_aln_01_short_2.fq"
+    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_short_1.fq  ds_100_num1_aln_21_short_2.fq"
+    # "sr_s1  short  /path/to/short_reads/  sample1_R1.fastq.gz  sample1_R2.fastq.gz"
+    # "sr_s2  short  /path/to/short_reads/  sample2_R1.fastq.gz  sample2_R2.fastq.gz"
+    "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
+    "sim2  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
 )
 
 # ============================================================
@@ -130,6 +141,9 @@ JOLI-Kallisto Experiment
 Date: $(date -Iseconds)
 Script: ${BASH_SOURCE[0]}
 
+=== EXPERIMENT COMMENT ===
+${EXPERIMENT_COMMENT:-"(none)"}
+
 === CONFIG ===
 KALLISTO:           ${KALLISTO}
 BUSTOOLS:           ${BUSTOOLS}
@@ -137,15 +151,17 @@ TRANSCRIPTOME_FASTA:${TRANSCRIPTOME_FASTA}
 INDEX_FILE:         ${INDEX_FILE}
 T2G_FILE:           ${T2G_FILE}
 BUILD_INDEX:        ${BUILD_INDEX}
-KMER_SIZE:          ${KMER_SIZE}
-READ_TYPE:          ${READ_TYPE}
-PLATFORM:           ${PLATFORM}
+KMER_SIZE_LONG:     ${KMER_SIZE_LONG}
+KMER_SIZE_SHORT:    ${KMER_SIZE_SHORT}
+PLATFORM:           ${PLATFORM}  (long-read only)
 THREADS:            ${THREADS}
-THRESHOLD:          ${THRESHOLD}
-MAX_EM_ROUNDS:  ${MAX_EM_ROUNDS}
-MIN_ROUNDS:     ${MIN_ROUNDS}
-EFF_LEN_MODE:   ${EFF_LEN_MODE}
-EM_TYPE:        ${EM_TYPE}
+THRESHOLD:          ${THRESHOLD}  (long-read only)
+MAX_EM_ROUNDS:      ${MAX_EM_ROUNDS}
+MIN_ROUNDS:         ${MIN_ROUNDS}
+EFF_LEN_MODE:       ${EFF_LEN_MODE}
+EM_TYPE:            ${EM_TYPE}
+SAVE_SNAPSHOTS:     ${SAVE_SNAPSHOTS}
+SNAPSHOT_INTERVAL:  ${SNAPSHOT_INTERVAL}
 
 === SAMPLES ===
 $(printf '%s\n' "${SAMPLES[@]}")
@@ -196,9 +212,9 @@ ERRORS=()
 # Set BUILD_INDEX=1 in CONFIG to rebuild; 0 to skip.
 # ============================================================
 if [[ "${BUILD_INDEX}" == "1" ]]; then
-    echo "Step 0: kallisto index" | tee -a "${LOG}"
+    echo "Step 0: kallisto index (k=${KMER_SIZE_LONG}, long-read k-mer)" | tee -a "${LOG}"
     [[ ! -f "${TRANSCRIPTOME_FASTA}" ]] && echo "ERROR: TRANSCRIPTOME_FASTA not found: ${TRANSCRIPTOME_FASTA}" | tee -a "${LOG}" && exit 1
-    "${KALLISTO}" index --index "${INDEX_FILE}" -k "${KMER_SIZE}" "${TRANSCRIPTOME_FASTA}" \
+    "${KALLISTO}" index --index "${INDEX_FILE}" -k "${KMER_SIZE_LONG}" "${TRANSCRIPTOME_FASTA}" \
         2>&1 | tee -a "${LOG}"
     echo "[OK] Index built: ${INDEX_FILE}" | tee -a "${LOG}"
 else
@@ -207,12 +223,31 @@ else
 fi
 
 for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
-    # Parse sample entry fields
-    read -r SAMPLE_NAME READS_DIR READS_FILE1 <<< "${SAMPLE_ENTRY}"
-    READS_FILE2=""
-    # If 4th field present: paired short-read R2
-    if [[ $(echo "${SAMPLE_ENTRY}" | awk '{print NF}') -ge 4 ]]; then
-        READS_FILE2=$(echo "${SAMPLE_ENTRY}" | awk '{print $4}')
+    # Parse fields: sample_name  read_type  reads_dir  file1  [file2]
+    read -r SAMPLE_NAME SAMPLE_READ_TYPE READS_DIR READS_FILE1 READS_FILE2_MAYBE <<< "${SAMPLE_ENTRY}"
+    READS_FILE2="${READS_FILE2_MAYBE:-}"
+
+    # Validate read_type
+    if [[ "${SAMPLE_READ_TYPE}" != "long" && "${SAMPLE_READ_TYPE}" != "short" ]]; then
+        echo "ERROR: Unknown read_type '${SAMPLE_READ_TYPE}' for sample '${SAMPLE_NAME}'." | tee -a "${LOG}"
+        echo "       Must be 'long' or 'short'." | tee -a "${LOG}"
+        ERRORS+=("${SAMPLE_NAME}")
+        continue
+    fi
+
+    # Short-read requires two files
+    if [[ "${SAMPLE_READ_TYPE}" == "short" && -z "${READS_FILE2}" ]]; then
+        echo "ERROR: Sample '${SAMPLE_NAME}' has read_type=short but only one file provided." | tee -a "${LOG}"
+        echo "       Format: \"sample_name  short  reads_dir  R1_file  R2_file\"" | tee -a "${LOG}"
+        ERRORS+=("${SAMPLE_NAME}")
+        continue
+    fi
+
+    # Select k-mer size based on read type
+    if [[ "${SAMPLE_READ_TYPE}" == "long" ]]; then
+        KMER_SIZE="${KMER_SIZE_LONG}"
+    else
+        KMER_SIZE="${KMER_SIZE_SHORT}"
     fi
 
     STEM=$(get_stem "${READS_FILE1}")
@@ -222,14 +257,17 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
 
     echo "" | tee -a "${LOG}"
     echo "------------------------------------------------------------" | tee -a "${LOG}"
-    echo "Sample:     ${SAMPLE_NAME}"          | tee -a "${LOG}"
-    echo "Reads:      ${READS_DIR}/${READS_FILE1}" | tee -a "${LOG}"
-    echo "Cache dir:  ${CACHE_DIR}"            | tee -a "${LOG}"
-    echo "Result dir: ${SAMPLE_RESULT_DIR}"    | tee -a "${LOG}"
+    echo "Sample:     ${SAMPLE_NAME}"                              | tee -a "${LOG}"
+    echo "Read type:  ${SAMPLE_READ_TYPE}  (k=${KMER_SIZE})"      | tee -a "${LOG}"
+    echo "Reads:      ${READS_DIR}/${READS_FILE1}"                 | tee -a "${LOG}"
+    if [[ -n "${READS_FILE2}" ]]; then
+        echo "            ${READS_DIR}/${READS_FILE2}"             | tee -a "${LOG}"
+    fi
+    echo "Cache dir:  ${CACHE_DIR}"                                | tee -a "${LOG}"
+    echo "Result dir: ${SAMPLE_RESULT_DIR}"                        | tee -a "${LOG}"
     echo "------------------------------------------------------------" | tee -a "${LOG}"
 
     # ---- CACHE CHECK ----
-    # This is the single decision point: bustools or skip?
     if cache_complete "${CACHE_DIR}"; then
         echo "[CACHE HIT] Skipping kallisto bus + bustools steps." | tee -a "${LOG}"
         echo "  Using existing TCC files in: ${CACHE_DIR}"        | tee -a "${LOG}"
@@ -239,8 +277,8 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
         mkdir -p "${CACHE_DIR}"
 
         # -- Step 1: kallisto bus --
-        echo "Step 1: kallisto bus" | tee -a "${LOG}"
-        if [[ "${READ_TYPE}" == "long" ]]; then
+        echo "Step 1: kallisto bus (read_type=${SAMPLE_READ_TYPE})" | tee -a "${LOG}"
+        if [[ "${SAMPLE_READ_TYPE}" == "long" ]]; then
             "${KALLISTO}" bus \
                 -x bulk \
                 -i "${INDEX_FILE}" \
@@ -252,7 +290,6 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
                 "${READS_DIR}/${READS_FILE1}" \
                 2>&1 | tee -a "${LOG}"
         else
-            # Short-read paired
             "${KALLISTO}" bus \
                 -x bulk \
                 -i "${INDEX_FILE}" \
@@ -320,7 +357,9 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
         --eff_len_mode  "${EFF_LEN_MODE}" \
         --max_em_rounds "${MAX_EM_ROUNDS}" \
         --min_rounds    "${MIN_ROUNDS}" \
-        --em_type       "${EM_TYPE}" \
+        --em_type            "${EM_TYPE}" \
+        --save_snapshots     "${SAVE_SNAPSHOTS}" \
+        --snapshot_interval  "${SNAPSHOT_INTERVAL}" \
         2>&1 | tee -a "${LOG}"
 
     if [[ $? -ne 0 ]]; then

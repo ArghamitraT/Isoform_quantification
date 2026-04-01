@@ -79,6 +79,7 @@ class TrainingTracker:
         self.sample_names = list(sample_names)
         self.history      = []         # list of per-round metric dicts
         self._prev_alpha  = None       # alpha from previous round for change tracking
+        self.snapshots    = []         # list of snapshot dicts (populated by record_snapshot)
 
     def record(
         self,
@@ -149,6 +150,44 @@ class TrainingTracker:
             "theta_vs_alpha_corr": theta_vs_alpha_corr,
             "nonzero_per_sample":  nonzero_per_sample,
         })
+
+    def record_snapshot(
+        self,
+        round_num:  int,
+        alpha:      np.ndarray,
+        theta_list: list,
+    ) -> None:
+        """
+        Store a full alpha + per-sample theta snapshot for one round.
+
+        Called every snapshot_interval rounds from _run_em_wrapper when
+        save_snapshots=True. Snapshots are saved to snapshots.pkl via
+        save_snapshots() in write_results().
+
+        Args:
+            round_num  : int          -- 0-indexed outer round number.
+            alpha      : np.ndarray   -- Current shared alpha, shape (T,).
+            theta_list : list[ndarray]-- Per-sample normalized theta, each (T,).
+        """
+        self.snapshots.append({
+            "round":  round_num,
+            "alpha":  alpha.copy(),
+            "thetas": [t.copy() for t in theta_list],
+        })
+
+    def save_snapshots(self, path: str) -> None:
+        """
+        Pickle the snapshot list to disk.
+
+        Args:
+            path : str -- Output file path (e.g. snapshots.pkl).
+        """
+        with open(path, "wb") as fh:
+            pickle.dump({
+                "sample_names": self.sample_names,
+                "snapshots":    self.snapshots,
+            }, fh)
+        print(f"[TrainingTracker] Snapshots saved ({len(self.snapshots)} frames): {path}")
 
     def print_round_summary(self, gd_round: int) -> None:
         """

@@ -83,6 +83,8 @@ JOLI_Kallisto/
 ├── analysis/                    # Post-run analysis and plotting
 │   ├── compare_abundance_files.py   # Compare JK vs LK abundance.tsv
 │   ├── run_batch_comparison.py      # Batch comparison across experiment folders
+│   ├── run_gt_comparison.py         # Compare abundance.tsv vs ground truth (TP/FP/FN/TN + 3 metric sets)
+│   ├── run_eda.py                   # EDA: Priority 1 (index discrepancy) + Priority 6 (leaked transcripts)
 │   └── plot_training.py             # Training diagnostic figures from training_stats.pkl
 ├── test/                        # Unit tests (run from JOLI_Kallisto/ root)
 │   ├── test_JolitoKallisto.py
@@ -133,6 +135,92 @@ All results save to `/gpfs/commons/home/atalukder/RNA_Splicing/files/results/exp
 `code_snapshot/` copies only `.py`, `.sh`, `.txt`, `.yml`, `.yaml` files — no data/binary assets.
 
 > See [experiments.md](experiments.md) for the full output tree and snapshot implementation.
+
+---
+
+## Figure Design Rules
+
+1. **No overlapping histograms or plots.** Never use `alpha` transparency to layer two distributions on top of each other — the back one gets hidden. Instead use subplots: one panel per group (e.g. TP in panel 1, FP in panel 2) with a shared axis so they are directly comparable.
+
+2. **Group related figures onto one page using subplots.** If two or more figures show related information (same analysis, same sample), combine them into a single multi-panel figure rather than saving separate files. Examples:
+   - Metric sensitivity bar chart + TP/FP/FN/TN counts → 1×2 subplot
+   - TP histogram + FP histogram + CDF → 1×3 subplot
+   - Rank plot + LK vs JK scatter → 1×2 subplot
+   - EC size TP + EC size FP → 2×1 stacked subplot with shared x-axis
+
+3. **Standalone figures** are acceptable only when the figure is complex enough to need full width (e.g. a scatter with a colorbar), or when it covers a fundamentally different question from other figures in the same script.
+
+---
+
+## Run Instructions Convention
+
+**Every script must include run instructions** — either in the top-level docstring or in the `main()` docstring — showing the exact commands needed to execute it. Format:
+
+```python
+    Run:
+        cd /gpfs/commons/home/atalukder/RNA_Splicing/code/JOLI_Kallisto
+        conda activate NanoCount_5
+        python analysis/run_eda.py
+
+    # Or with arguments:
+        python analysis/run_gt_comparison.py exprmnt_2026_03_28__00_29_23 exprmnt_2026_03_28__00_51_02
+```
+
+For bash scripts, add at the top:
+```bash
+# Run: sbatch scripts/submit_multisample_joli.sh
+# Or:  bash scripts/run_multisample_joli.sh
+```
+
+---
+
+## Analysis Output Convention
+
+**Analysis scripts that operate on experiment folders save their output INSIDE those experiment folders — not in a new top-level folder.**
+
+| Script | Saves inside |
+|--------|-------------|
+| `analysis/run_gt_comparison.py` | Each experiment folder passed as argument: `exprmnt_.../gt_comparison_{timestamp}.txt` |
+| `analysis/run_batch_comparison.py` | Each experiment folder: `exprmnt_.../comparison_vs_{other}_{timestamp}.txt` |
+| `analysis/run_eda.py` | The primary experiment folder (JK MS): `exprmnt_.../eda_{timestamp}/` |
+
+### Rules — where to save analysis outputs
+
+**Rule 1 — Multi-folder scripts write to ALL input folders.**
+When a script takes one or more `exprmnt_*` folders as arguments, every folder passed to it gets its own independent copy of the outputs. Never write only to a single "primary" folder when multiple were passed. Each folder must be self-contained.
+
+**Rule 2 — Substantial analysis (text + figures) → named subfolder with date-time stamp.**
+If an analysis produces multiple files (e.g. text reports + figures, or any multi-file output), create a dedicated subfolder inside the experiment folder named after the analysis type and date-time stamped:
+```
+exprmnt_.../eda_2026_03_31__14_30_00/
+exprmnt_.../gt_comparison_2026_03_31__14_30_00/
+exprmnt_.../inter_sample_corr_2026_03_31__14_30_00/
+```
+Each subfolder may contain a `figures/` dir for plots.
+
+**Rule 3 — Small analysis (1–2 figures/GIFs/HTMLs) → `figures/` folder directly.**
+If the output is just one or two files (a plot, a GIF, an HTML), save them directly into the experiment folder's `figures/` subdirectory (create it if it doesn't exist). Do not create a new subfolder for a single file.
+```
+exprmnt_.../figures/convergence_animation_2026_03_31__14_30_00.gif
+exprmnt_.../figures/fp_tpm_zoom_2026_03_31__14_30_00.png
+```
+
+**Rule 4 — ALL figure/GIF/HTML filenames must be date-AND-time stamped.**
+Every output file (figure, GIF, HTML, text report) must include a date-time stamp (`YYYY_MM_DD__HH_MM_SS`) in its filename so that re-running an analysis never overwrites previous results.
+```python
+# Good — date + time, never overwrites
+timestamp = datetime.now().strftime("%Y_%m_%d__%H_%M_%S")
+f"convergence_animation_{timestamp}.gif"
+f"gt_comparison_{timestamp}.txt"
+
+# Bad — date only, same-day re-runs overwrite
+f"convergence_animation_{date}.gif"
+
+# Bad — no stamp at all
+"convergence_animation.gif"
+```
+
+**Never create a new top-level folder in `files/results/` for analysis** — only pipeline runs create new top-level folders.
 
 ---
 
