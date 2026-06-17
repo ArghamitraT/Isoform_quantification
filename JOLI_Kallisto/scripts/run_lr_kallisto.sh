@@ -52,6 +52,9 @@ set -euo pipefail
 # CONFIG — edit everything here; do not touch the pipeline logic below
 # =============================================================================
 
+# --- Script directory (absolute path; needed for SLURM which copies the script to a temp location) ---
+JOLI_KALLISTO_DIR=/gpfs/commons/home/atalukder/RNA_Splicing/code/JOLI_Kallisto
+
 # --- Binaries ---
 KALLISTO=/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/kallisto/build/src/kallisto
 BUSTOOLS=/gpfs/commons/home/atalukder/miniconda3/envs/mpaqt/bin/bustools
@@ -66,7 +69,8 @@ TRANSCRIPTOME_FASTA="${LR_KALLISTO_BASE}/transcriptome.fasta"
 # TRANSCRIPTOME_FASTA=/gpfs/commons/home/sraghavendra/Simulation/lrgasp-simulation/sim_result/ref_data/human.transcripts.fasta
 
 # Path for the kallisto index (built here if BUILD_INDEX=1, otherwise must already exist)
-INDEX_FILE="${LR_KALLISTO_BASE}/new_index.idx"
+INDEX_FILE="${LR_KALLISTO_BASE}/new_index.idx"          # k=63 long-read index (default)
+SHORT_INDEX_FILE="${LR_KALLISTO_BASE}/new_index_k31.idx" # k=31 short-read index (auto-used when BUILD_INDEX=1 and all samples are short)
 
 # Transcript-to-gene map
 T2G_FILE="${LR_KALLISTO_BASE}/t2g.txt"
@@ -92,7 +96,7 @@ OUTPUT_BASE=/gpfs/commons/home/atalukder/RNA_Splicing/files/results
 # --- Experiment comment ---
 # Free-text description saved to experiment_description.log for this run.
 # Describe what you are testing, what changed, or what you expect.
-EXPERIMENT_COMMENT=""
+EXPERIMENT_COMMENT="Trying to run lr kallisto on real data long read 5"
 
 # --- Sample array ---
 # Each entry: "sample_name  read_type  reads_dir  file1  [file2]"
@@ -107,12 +111,14 @@ SAMPLES=(
     # "flnc_03  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_03.fastq"
     # "flnc_31  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_31.fastq"
     # "flnc_32  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_32.fastq"
-    # Short-read examples:
-    # "sim_sr_s1  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_short_1.fq  ds_100_num1_aln_01_short_2.fq"
-    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_short_1.fq  ds_100_num1_aln_21_short_2.fq"
-    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  sample2_R1.fastq.gz  sample2_R2.fastq.gz"
-    "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
+    # "flnc_51  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_51.fastq"
+    # "flnc_52  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_52.fastq"
+    # "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
     # "sim2  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
+    # Short-read examples:
+    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  sample2_R1.fastq.gz  sample2_R2.fastq.gz"
+    "sim_sr_s1  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_short_1.fq  ds_100_num1_aln_01_short_2.fq"
+    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_short_1.fq  ds_100_num1_aln_21_short_2.fq"
 )
 
 # =============================================================================
@@ -185,11 +191,27 @@ echo "Running log     : ${LOG}"
 # Runs only when BUILD_INDEX=1. Skipped when BUILD_INDEX=0.
 # =============================================================================
 
+# Detect whether all samples are short-read — determines k-mer size when building the index.
+# Mixed or any-long → KMER_SIZE_LONG; all-short → KMER_SIZE_SHORT + SHORT_INDEX_FILE.
+_has_long=0
+for _entry in "${SAMPLES[@]}"; do
+    _type=$(awk '{print $2}' <<< "${_entry}")
+    if [[ "${_type}" == "long" ]]; then _has_long=1; break; fi
+done
+
+if [[ "${_has_long}" -eq 0 ]]; then
+    BUILD_KMER="${KMER_SIZE_SHORT}"
+    INDEX_FILE="${SHORT_INDEX_FILE}"   # avoid overwriting the long-read index
+    echo "  [INFO] All samples are short-read — using k=${BUILD_KMER}, index: ${INDEX_FILE}" | tee -a "${LOG}"
+else
+    BUILD_KMER="${KMER_SIZE_LONG}"
+fi
+
 if [ "${BUILD_INDEX}" = "1" ]; then
     echo ""
-    echo "=== Step 0: kallisto index (k=${KMER_SIZE_LONG}, long-read k-mer) ===" | tee -a "${LOG}"
-    echo "  Transcriptome: ${TRANSCRIPTOME_FASTA}"  | tee -a "${LOG}"
-    echo "  Output index : ${INDEX_FILE}"            | tee -a "${LOG}"
+    echo "=== Step 0: kallisto index (k=${BUILD_KMER}) ===" | tee -a "${LOG}"
+    echo "  Transcriptome: ${TRANSCRIPTOME_FASTA}"          | tee -a "${LOG}"
+    echo "  Output index : ${INDEX_FILE}"                    | tee -a "${LOG}"
 
     if [ ! -f "${TRANSCRIPTOME_FASTA}" ]; then
         echo "ERROR: TRANSCRIPTOME_FASTA not found: ${TRANSCRIPTOME_FASTA}" | tee -a "${LOG}"
@@ -198,7 +220,7 @@ if [ "${BUILD_INDEX}" = "1" ]; then
 
     "${KALLISTO}" index \
         --index "${INDEX_FILE}" \
-        -k "${KMER_SIZE_LONG}" \
+        -k "${BUILD_KMER}" \
         "${TRANSCRIPTOME_FASTA}" \
         >> "${LOG}" 2>&1
 
@@ -344,8 +366,10 @@ for entry in "${SAMPLES[@]}"; do
         echo "  [OK] bustools count done. TCC files cached: ${CACHE_DIR}" | tee -a "${LOG}"
     fi
 
-    # Copy TCC files to experiment result dir for reproducibility
-    for f in count.mtx count.ec.txt transcripts.txt matrix.ec run_info.json; do
+    # Copy TCC files + flens.txt to experiment result dir for reproducibility
+    # Note: for short paired reads, kallisto bus writes flens.txt (FLD histogram)
+    # automatically — it is used by quant-tcc via --fld-file for eff_len correction.
+    for f in count.mtx count.ec.txt transcripts.txt matrix.ec run_info.json flens.txt; do
         [ -f "${CACHE_DIR}/${f}" ] && cp "${CACHE_DIR}/${f}" "${SAMPLE_OUT}/${f}"
     done
 
@@ -355,9 +379,17 @@ for entry in "${SAMPLES[@]}"; do
     echo ""                                                        >> "${LOG}"
     echo "=== [${SAMPLE_NAME}] Step 4: kallisto quant-tcc ==="    >> "${LOG}"
 
+    # For short reads: pass the FLD histogram (written by kallisto bus) so that
+    # quant-tcc computes proper per-transcript effective lengths instead of uniform.
+    FLD_FILE_FLAG=""
+    if [[ "${SAMPLE_READ_TYPE}" == "short" && -f "${CACHE_DIR}/flens.txt" ]]; then
+        FLD_FILE_FLAG="--fld-file ${CACHE_DIR}/flens.txt"
+    fi
+
     "${KALLISTO}" quant-tcc \
         -t "${THREADS}" \
         ${QUANT_MODE_FLAGS} \
+        ${FLD_FILE_FLAG} \
         "${CACHE_DIR}/count.mtx" \
         -i "${INDEX_FILE}" \
         -e "${CACHE_DIR}/count.ec.txt" \
@@ -373,7 +405,7 @@ for entry in "${SAMPLES[@]}"; do
     echo ""                                                        >> "${LOG}"
     echo "=== [${SAMPLE_NAME}] mtx → abundance.tsv ==="           >> "${LOG}"
 
-    python "$(dirname "$(realpath "$0")")/mtx_to_tsv.py" \
+    python "${JOLI_KALLISTO_DIR}/scripts/mtx_to_tsv.py" \
         "${SAMPLE_OUT}" \
         >> "${LOG}" 2>&1
 

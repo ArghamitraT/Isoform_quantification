@@ -461,12 +461,12 @@ def test_em_all_single_tx():
     passed = True
     passed &= check(isinstance(result, EMResult), "Returns EMResult")
     # Single-tx counts land in alpha directly; proportions should be 60:40
-    passed &= check(np.isclose(result.alpha[0], 60.0, atol=1e-6),
-                    "alpha[TX_A]==60 (raw single-tx count)", f"got {result.alpha[0]:.6f}")
-    passed &= check(np.isclose(result.alpha[1], 40.0, atol=1e-6),
-                    "alpha[TX_B]==40 (raw single-tx count)", f"got {result.alpha[1]:.6f}")
-    passed &= check(np.isclose(result.alpha.sum(), 100.0, atol=1e-9),
-                    "alpha sums to total reads (100)", f"got {result.alpha.sum():.10f}")
+    passed &= check(np.isclose(result.theta_unnorm[0], 60.0, atol=1e-6),
+                    "alpha[TX_A]==60 (raw single-tx count)", f"got {result.theta_unnorm[0]:.6f}")
+    passed &= check(np.isclose(result.theta_unnorm[1], 40.0, atol=1e-6),
+                    "alpha[TX_B]==40 (raw single-tx count)", f"got {result.theta_unnorm[1]:.6f}")
+    passed &= check(np.isclose(result.theta_unnorm.sum(), 100.0, atol=1e-9),
+                    "alpha sums to total reads (100)", f"got {result.theta_unnorm.sum():.10f}")
     return passed
 
 
@@ -485,12 +485,12 @@ def test_em_single_multi_ec_converges_uniform():
 
     passed = True
     # alpha = theta * total_multi_reads (no single-tx here); symmetric -> 50 each
-    passed &= check(np.isclose(result.alpha[0], 50.0, atol=1e-2),
+    passed &= check(np.isclose(result.theta_unnorm[0], 50.0, atol=1e-2),
                     "alpha[TX_A]~50 (symmetric EC, 100 reads split evenly)",
-                    f"got {result.alpha[0]:.6f}")
-    passed &= check(np.isclose(result.alpha[1], 50.0, atol=1e-2),
+                    f"got {result.theta_unnorm[0]:.6f}")
+    passed &= check(np.isclose(result.theta_unnorm[1], 50.0, atol=1e-2),
                     "alpha[TX_B]~50 (symmetric EC, 100 reads split evenly)",
-                    f"got {result.alpha[1]:.6f}")
+                    f"got {result.theta_unnorm[1]:.6f}")
     return passed
 
 
@@ -520,14 +520,14 @@ def test_em_mixed_ecs():
     # alpha[TX_A] = 50 (single-tx) + 0 (multi) = 50
     # alpha[TX_B] = 10 (single-tx) + ~10 (half of 20 from EC1) = ~20
     # alpha[TX_C] = 0  (single-tx) + ~10 (half of 20 from EC1) = ~10
-    passed &= check(result.alpha[0] > result.alpha[1],
+    passed &= check(result.theta_unnorm[0] > result.theta_unnorm[1],
                     "TX_A (50 exclusive reads) > TX_B",
-                    f"alpha[A]={result.alpha[0]:.4f}, alpha[B]={result.alpha[1]:.4f}")
-    passed &= check(result.alpha[1] > result.alpha[2],
+                    f"alpha[A]={result.theta_unnorm[0]:.4f}, alpha[B]={result.theta_unnorm[1]:.4f}")
+    passed &= check(result.theta_unnorm[1] > result.theta_unnorm[2],
                     "TX_B (10 exclusive + half of 20) > TX_C (half of 20)",
-                    f"alpha[B]={result.alpha[1]:.4f}, alpha[C]={result.alpha[2]:.4f}")
-    passed &= check(result.alpha.sum() > 0, "alpha sum > 0",
-                    f"sum={result.alpha.sum():.4f}")
+                    f"alpha[B]={result.theta_unnorm[1]:.4f}, alpha[C]={result.theta_unnorm[2]:.4f}")
+    passed &= check(result.theta_unnorm.sum() > 0, "alpha sum > 0",
+                    f"sum={result.theta_unnorm.sum():.4f}")
     passed &= check(result.converged, "EM converged", f"converged={result.converged}")
     return passed
 
@@ -549,10 +549,10 @@ def test_em_theta_nonneg_sums_to_one():
     result = em.run(max_em_rounds=10000, min_rounds=1)
 
     passed = True
-    passed &= check(np.all(result.alpha >= 0), "All alpha >= 0",
-                    f"min={result.alpha.min():.4f}")
-    passed &= check(result.alpha.sum() > 0, "alpha sum > 0 (reads assigned)",
-                    f"got {result.alpha.sum():.4f}")
+    passed &= check(np.all(result.theta_unnorm >= 0), "All alpha >= 0",
+                    f"min={result.theta_unnorm.min():.4f}")
+    passed &= check(result.theta_unnorm.sum() > 0, "alpha sum > 0 (reads assigned)",
+                    f"got {result.theta_unnorm.sum():.4f}")
     passed &= check(result.n_rounds >= 1, "n_rounds >= 1",
                     f"got {result.n_rounds}")
     return passed
@@ -588,12 +588,12 @@ def test_em_zero_count_ec_ignored():
 
     passed = True
     # alpha[TX_A] = 100 (single-tx raw count); alpha[TX_B] = 0 (zero-count multi EC ignored)
-    passed &= check(np.isclose(result.alpha[0], 100.0, atol=1e-4),
+    passed &= check(np.isclose(result.theta_unnorm[0], 100.0, atol=1e-4),
                     "alpha[TX_A]==100 (all reads in single-tx EC)",
-                    f"alpha[A]={result.alpha[0]:.6f}, alpha[B]={result.alpha[1]:.6f}")
-    passed &= check(np.isclose(result.alpha[1], 0.0, atol=1e-4),
+                    f"alpha[A]={result.theta_unnorm[0]:.6f}, alpha[B]={result.theta_unnorm[1]:.6f}")
+    passed &= check(np.isclose(result.theta_unnorm[1], 0.0, atol=1e-4),
                     "alpha[TX_B]==0 (zero-count EC ignored)",
-                    f"alpha[B]={result.alpha[1]:.6f}")
+                    f"alpha[B]={result.theta_unnorm[1]:.6f}")
     return passed
 
 
@@ -617,12 +617,12 @@ def _run_full_pipeline(ec_transcripts, ec_counts, transcript_names,
         out_file = os.path.join(tmpdir, "abundance.tsv")
 
     summary = write_abundance(
-        alpha=em_result.alpha,
+        theta_unnorm=em_result.theta_unnorm,
         eff_lens=wdata.eff_lens,
         transcript_names=data.transcript_names,
         output_path=out_file,
     )
-    return summary, em_result.alpha, wdata.eff_lens, out_file
+    return summary, em_result.theta_unnorm, wdata.eff_lens, out_file
 
 
 def _read_tsv(path):

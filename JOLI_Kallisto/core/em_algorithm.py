@@ -8,11 +8,14 @@ rather than individual reads. Mathematically equivalent to kallisto's C++ EM
 (EMAlgorithm.h) but written in Python/NumPy, and designed to extend to
 Dirichlet MAP (Phase 2), multi-sample GD (Phase 3), and VI (Phase 4).
 
-Single-transcript EC handling (Fix A — matches kallisto EMAlgorithm.h exactly):
-  Single-tx ECs are excluded from the EM loop entirely.  After convergence,
-  their raw read counts are added directly to alpha (expected counts).  This
-  prevents single-tx counts from biasing the fractional assignment of
-  multi-tx ECs in cases where a transcript appears in both EC types.
+Single-transcript EC handling:
+  Single-tx ECs have deterministic assignment (probability = 1.0) so the E-step
+  does not process them.  Their per-transcript read counts are pre-computed in
+  _preprocess() as _single_tx_counts_per_tx (a constant vector) and added to the
+  M-step numerator every round alongside the multi-tx expected counts.  This means
+  the E-step probability P(read → t | multi-tx EC) correctly reflects each
+  transcript's total abundance (single-tx + multi-tx), not just its multi-tx share.
+  The final alpha is theta * total_all_reads — no separate post-convergence addition.
 
 Variable mapping to kallisto EMAlgorithm.h:
   alpha       <->  alpha_          (raw expected counts; NOT normalized)
@@ -71,11 +74,12 @@ class EMResult:
     Output from one run of JoliEM.
 
     Attributes:
-        alpha     (np.ndarray, float64, shape [n_transcripts]):
+        theta_unnorm (np.ndarray, float64, shape [n_transcripts]):
                    Raw expected read counts per transcript. Multi-tx EM expected
                    counts + single-tx raw counts added post-convergence.
                    Does NOT sum to 1. Matches kallisto's alpha_ after run().
-                   Use alpha / eff_lens → rho → TPM for output (see output_writer.py).
+                   Use theta_unnorm / eff_lens → rho → TPM for output (see output_writer.py).
+                   Named theta_unnorm to distinguish from the Dirichlet alpha_prior.
 
         n_rounds  (int): Number of EM iterations completed.
 
@@ -87,10 +91,10 @@ class EMResult:
                    plus the final theta. theta is normalized (sums to ~1).
                    None when snapshots are disabled (snapshot_interval=0).
     """
-    alpha:     np.ndarray
-    n_rounds:  int
-    converged: bool
-    snapshots: list = None
+    theta_unnorm: np.ndarray
+    n_rounds:     int
+    converged:    bool
+    snapshots:    list = None
 
 
 # ============================================================
@@ -116,15 +120,24 @@ class JoliEM:
     avoid a Python loop over EC positions. See _preprocess() for details.
     """
 
-    def __init__(self, tcc_data: TCCData, weight_data: WeightData):
+    def __init__(self, tcc_data: TCCData, weight_data: WeightData,
+                 em_include_single_tx: bool = True):
         """
         Pre-process TCC and weight data into vectorization-friendly flat arrays.
 
         Args:
-            tcc_data    : TCCData    -- Parsed bustools output.
-            weight_data : WeightData -- Effective lengths and EC weights.
+            tcc_data             : TCCData    -- Parsed bustools output.
+            weight_data          : WeightData -- Effective lengths and EC weights.
+            em_include_single_tx : bool       -- When True (default), single-tx read counts
+                                                are added to the M-step numerator every round
+                                                so the E-step probability reflects total
+                                                abundance (single-tx + multi-tx).
+                                                When False, single-tx counts are excluded from
+                                                the EM loop (original behaviour — matches
+                                                kallisto EMAlgorithm.h exactly).
         """
-        self.n_transcripts  = len(tcc_data.transcript_names)
+        self.n_transcripts         = len(tcc_data.transcript_names)
+        self._em_include_single_tx = em_include_single_tx
         self.ec_counts      = tcc_data.ec_counts          # shape (n_ecs,)
         self.ec_transcripts = tcc_data.ec_transcripts     # list[list[int]]
         self.eff_lens       = weight_data.eff_lens        # shape (n_transcripts,)
@@ -209,18 +222,31 @@ class JoliEM:
             float(self._multi_ec_counts.sum()) if len(self._multi_ec_counts) > 0 else 0.0
         )
 
+        # Per-transcript sum of single-tx read counts (constant across all EM rounds).
+        # Used by run() to include single-tx evidence in the M-step numerator so that
+        # transcripts with strong single-tx support correctly influence the E-step
+        # probability when they also appear in multi-tx ECs.
+        self._single_tx_counts_per_tx = np.zeros(self.n_transcripts, dtype=np.float64)
+        if len(self._single_tx_ids) > 0:
+            np.add.at(self._single_tx_counts_per_tx, self._single_tx_ids,
+                      self._single_ec_counts.astype(np.float64))
+        self._total_single_reads = float(self._single_tx_counts_per_tx.sum())
+        self._total_all_reads    = self._total_multi_reads + self._total_single_reads
+
         print(f"[JoliEM] Pre-processed: {len(single_ec_ids)} single-tx ECs, "
               f"{self._n_multi_ecs} multi-tx ECs, "
               f"{len(self._multi_flat_tx)} total EC-transcript positions, "
-              f"{n_active} active transcripts (have reads in this sample)")
+              f"{n_active} active transcripts (have reads in this sample), "
+              f"total_reads={self._total_all_reads:.0f} "
+              f"({self._total_single_reads:.0f} single-tx + {self._total_multi_reads:.0f} multi-tx)")
 
     def _em_step(self, theta: np.ndarray) -> np.ndarray:
         """
         Run one combined E+M step and return updated n (expected counts per tx).
 
-        Only multi-transcript ECs are processed here.  Single-tx ECs are excluded
-        from the EM loop and added as raw counts post-convergence (Fix A — matches
-        kallisto EMAlgorithm.h long-read branch exactly).
+        Only multi-transcript ECs are processed here.  Single-tx ECs have
+        deterministic assignment; their counts are held in _single_tx_counts_per_tx
+        and added by the caller (run() M-step) every round.
 
         The E-step computes fractional assignment weights; the M-step accumulates
         them into n[t]. Both happen in one pass, matching kallisto's structure.
@@ -327,7 +353,7 @@ class JoliEM:
                                               animate convergence across training rounds.
 
         Returns:
-            EMResult -- alpha (raw expected counts), n_rounds, converged, snapshots.
+            EMResult -- theta_unnorm (raw expected counts), n_rounds, converged, snapshots.
         """
         if convergence_mode not in ("kallisto", "joli"):
             raise ValueError(
@@ -342,15 +368,19 @@ class JoliEM:
                     f"n_transcripts={self.n_transcripts}"
                 )
 
-        # Total multi-tx reads — needed for kallisto mode convergence check and
-        # for scaling theta back to raw counts at the end.
-        total_multi_reads = self._total_multi_reads
+        # total_all_reads: denominator for M-step normalisation and convergence scaling.
+        # When em_include_single_tx=True, this covers all reads (single-tx + multi-tx).
+        # When em_include_single_tx=False, single-tx is excluded from the EM loop
+        # (original kallisto behaviour); the denominator is multi-tx reads only.
+        total_all_reads   = self._total_all_reads if self._em_include_single_tx else self._total_multi_reads
+        total_multi_reads = self._total_multi_reads  # kept for finalRound (kallisto mode)
 
         print(f"\n[JoliEM] Starting EM: max_rounds={max_em_rounds}, "
               f"min_rounds={min_rounds}, convergence_mode={convergence_mode}, "
               f"mode={'MAP(posterior_mean)' if alpha_prior is not None else 'plain'}, "
               f"n_transcripts={self.n_transcripts}, "
-              f"total_multi_reads={total_multi_reads:.0f}, "
+              f"total_all_reads={total_all_reads:.0f} "
+              f"({self._total_single_reads:.0f} single-tx + {total_multi_reads:.0f} multi-tx), "
               f"warm_start={'yes' if init_theta is not None else 'no'}")
 
         # --- Initialization ---
@@ -378,23 +408,25 @@ class JoliEM:
             snapshots.append((-1, theta.copy()))
 
         for round_num in range(max_em_rounds):
-            # One E+M step
+            # One E+M step — returns expected counts from multi-tx ECs only
             n = self._em_step(theta)
+
+            # Add fixed single-tx counts when the switch is on so the M-step
+            # normalisation uses all reads, correctly informing the E-step probability.
+            # When the switch is off, n_total = n (original kallisto behaviour).
+            n_total = (n + self._single_tx_counts_per_tx) if self._em_include_single_tx else n
 
             # M-step: posterior-mean EM (with Dirichlet prior) or plain EM
             if alpha_prior is not None:
                 if min_read_support > 0.0:
                     # Fix A: gate the prior on read support.
-                    # Transcripts with n[t] >= min_read_support get the MAP update;
-                    # those below threshold get plain EM — natural convergence toward
-                    # zero eliminates multi-mapping leakage without harming true TPs.
-                    has_support = n >= min_read_support
-                    numerator = np.where(has_support, n + alpha_prior, n)
+                    # Use n_total so single-tx evidence counts toward the support threshold.
+                    has_support = n_total >= min_read_support
+                    numerator = np.where(has_support, n_total + alpha_prior, n_total)
                 else:
-                    # Fix A disabled (default): prior always applied.
-                    numerator = n + alpha_prior
+                    numerator = n_total + alpha_prior
             else:
-                numerator = n
+                numerator = n_total
 
             # Zero out transcripts with no reads in this sample before normalizing.
             # Without this, alpha_prior > 0 would assign positive theta to transcripts
@@ -409,14 +441,14 @@ class JoliEM:
 
             # --- Convergence check ---
             if convergence_mode == "kallisto":
-                # Compare raw expected counts against 0.01 reads — matches kallisto C++.
-                # alpha_new[t] = theta_new[t] * total_multi_reads
-                # Monitor: alpha_new > 0.01  AND  |alpha_new - alpha_old| / alpha_new > 1%
-                alpha_new = theta_new * total_multi_reads
-                alpha_old = theta     * total_multi_reads
+                # Compare raw expected counts against 0.01 reads.
+                # Use total_all_reads (not total_multi_reads) because theta now
+                # normalises over all reads (single-tx + multi-tx).
+                counts_new = theta_new * total_all_reads
+                counts_old = theta     * total_all_reads
                 changed = int(np.sum(
-                    (alpha_new > ALPHA_CHANGE_LIMIT) &
-                    (np.abs(alpha_new - alpha_old) / np.maximum(alpha_new, TOLERANCE)
+                    (counts_new > ALPHA_CHANGE_LIMIT) &
+                    (np.abs(counts_new - counts_old) / np.maximum(counts_new, TOLERANCE)
                      > ALPHA_CHANGE)
                 ))
             else:
@@ -442,7 +474,7 @@ class JoliEM:
                 if convergence_mode == "joli":
                     n_monitored = int((theta_new > 1e-10).sum())
                 else:
-                    n_monitored = int((theta_new * total_multi_reads > ALPHA_CHANGE_LIMIT).sum())
+                    n_monitored = int((theta_new * total_all_reads > ALPHA_CHANGE_LIMIT).sum())
                 print(f"[JoliEM] Round {round_num + 1}: "
                       f"monitored={n_monitored}, changed={changed}")
 
@@ -460,54 +492,55 @@ class JoliEM:
         if not converged:
             print(f"[JoliEM] Reached max_em_rounds={max_em_rounds} without convergence.")
 
-        # --- Zero small multi-tx abundances ---
+        # --- Zero small abundances ---
         if convergence_mode == "kallisto":
-            # Matches kallisto EMAlgorithm.h: threshold applied to RAW expected counts
-            # (alpha = theta * total_multi_reads), not normalized theta.
-            # Avoids over-zeroing on large samples where 1e-8 on theta = ~0.1 raw reads.
-            alpha_temp = theta * total_multi_reads
-            n_zeroed = int(((alpha_temp > 0) & (alpha_temp < ALPHA_LIMIT / 10)).sum())
-            theta[alpha_temp < ALPHA_LIMIT / 10] = 0.0
+            # Threshold on raw expected counts. Use total_all_reads because theta
+            # now normalises over all reads (single-tx + multi-tx).
+            counts_temp = theta * total_all_reads
+            n_zeroed = int(((counts_temp > 0) & (counts_temp < ALPHA_LIMIT / 10)).sum())
+            theta[counts_temp < ALPHA_LIMIT / 10] = 0.0
         else:
             # "joli" mode: threshold on normalized theta (faster, for MAP/VI)
             n_zeroed = int(((theta > 0) & (theta < ALPHA_LIMIT / 10)).sum())
             theta[theta < ALPHA_LIMIT / 10] = 0.0
         if n_zeroed:
-            print(f"[JoliEM] Zeroed {n_zeroed} multi-tx transcripts below {ALPHA_LIMIT/10:.1e}")
+            print(f"[JoliEM] Zeroed {n_zeroed} transcripts below {ALPHA_LIMIT/10:.1e}")
 
         # --- finalRound (kallisto mode only) ---
-        # Kallisto runs one extra EM round after zeroing so reads can redistribute
-        # away from the newly-zeroed transcripts (EMAlgorithm.h finalRound mechanism).
+        # One extra EM round after zeroing so reads redistribute away from zeroed
+        # transcripts. Single-tx counts are included when the switch is on, keeping
+        # finalRound consistent with the M-step used throughout the loop.
         if convergence_mode == "kallisto":
             n_final = self._em_step(theta)
-            total_final = n_final.sum()
+            n_final_total = (n_final + self._single_tx_counts_per_tx) if self._em_include_single_tx else n_final
+            n_final_total[~self._active_tx_mask] = 0.0
+            total_final = n_final_total.sum()
             if total_final > 0:
-                theta = n_final / total_final
-                # Apply raw-count zeroing again after redistribution
-                alpha_final = theta * total_multi_reads
+                theta = n_final_total / total_final
+                counts_final = theta * total_all_reads
                 n_zeroed_final = int(
-                    ((alpha_final > 0) & (alpha_final < ALPHA_LIMIT / 10)).sum()
+                    ((counts_final > 0) & (counts_final < ALPHA_LIMIT / 10)).sum()
                 )
-                theta[alpha_final < ALPHA_LIMIT / 10] = 0.0
+                theta[counts_final < ALPHA_LIMIT / 10] = 0.0
                 print(f"[JoliEM] finalRound done. "
                       f"Additional transcripts zeroed: {n_zeroed_final}")
 
-        # --- Build alpha: raw expected counts ---
-        # Scale multi-tx theta back to expected counts, then add single-tx raw counts.
-        alpha = theta * total_multi_reads
-
-        # Add single-tx raw counts post-convergence (Fix A).
-        if len(self._single_tx_ids) > 0:
-            np.add.at(alpha, self._single_tx_ids, self._single_ec_counts)
+        # --- Build theta_unnorm: raw expected counts (not normalized, does not sum to 1) ---
+        # Named theta_unnorm to distinguish from the Dirichlet alpha_prior.
+        theta_unnorm = theta * total_all_reads
+        # When em_include_single_tx=False, single-tx was excluded from the EM loop;
+        # add raw counts back now so theta_unnorm is the complete expected count vector.
+        if not self._em_include_single_tx and len(self._single_tx_ids) > 0:
+            np.add.at(theta_unnorm, self._single_tx_ids, self._single_ec_counts)
 
         print(f"[JoliEM] Done. Rounds={round_num + 1}, "
-              f"nonzero_transcripts={int((alpha > 0).sum())}")
+              f"nonzero_transcripts={int((theta_unnorm > 0).sum())}")
 
         # Always append the final theta as the last snapshot
         if snapshots is not None:
             snapshots.append((round_num + 1, theta.copy()))
 
-        return EMResult(alpha=alpha, n_rounds=round_num + 1, converged=converged,
+        return EMResult(theta_unnorm=theta_unnorm, n_rounds=round_num + 1, converged=converged,
                         snapshots=snapshots)
 
     def em_step(
@@ -527,9 +560,12 @@ class JoliEM:
         Unlike run(), this method:
           - Does NOT zero small transcripts (no ALPHA_LIMIT thresholding).
           - Does NOT run finalRound.
-          - Does NOT add single-tx raw counts to alpha.
         Those finalisation steps happen once after the outer loop ends, via a
         single call to run(max_em_rounds=1, init_theta=...) in write_results().
+
+        Single-tx counts ARE included in the M-step (same as run()), so theta_new
+        correctly reflects all-read evidence and the E-step probability for the
+        next iteration is properly informed by single-tx support.
 
         Args:
             theta            : np.ndarray  -- current normalized abundances,
@@ -547,19 +583,22 @@ class JoliEM:
                 n_changed : number of monitored transcripts still changing.
                             0 means this sample has converged for this step.
         """
-        # E+M step: compute expected counts from multi-tx ECs
+        # E+M step: compute expected counts from multi-tx ECs only
         n = self._em_step(theta)
+
+        # Add fixed single-tx counts when switch is on — mirrors the M-step in run()
+        n_total = (n + self._single_tx_counts_per_tx) if self._em_include_single_tx else n
 
         # M-step: MAP posterior mean (with prior) or plain EM (without)
         if alpha_prior is not None:
             if min_read_support > 0.0:
                 # Fix A: gate prior on read support
-                has_support = n >= min_read_support
-                numerator = np.where(has_support, n + alpha_prior, n)
+                has_support = n_total >= min_read_support
+                numerator = np.where(has_support, n_total + alpha_prior, n_total)
             else:
-                numerator = n + alpha_prior
+                numerator = n_total + alpha_prior
         else:
-            numerator = n
+            numerator = n_total
 
         # Zero out transcripts with no reads in this sample
         numerator[~self._active_tx_mask] = 0.0
@@ -567,10 +606,11 @@ class JoliEM:
         total = numerator.sum()
         theta_new = numerator / total if total > 0 else theta.copy()
 
-        # Convergence check — mirrors run() logic exactly
+        # Convergence check — uses total_all_reads when switch is on, total_multi_reads otherwise
+        effective_total = self._total_all_reads if self._em_include_single_tx else self._total_multi_reads
         if convergence_mode == "kallisto":
-            alpha_new = theta_new * self._total_multi_reads
-            alpha_old = theta     * self._total_multi_reads
+            alpha_new = theta_new * effective_total
+            alpha_old = theta     * effective_total
             n_changed = int(np.sum(
                 (alpha_new > ALPHA_CHANGE_LIMIT) &
                 (np.abs(alpha_new - alpha_old) /

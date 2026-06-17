@@ -84,8 +84,10 @@ JOLI_Kallisto/
 │   ├── compare_abundance_files.py   # Compare JK vs LK abundance.tsv
 │   ├── run_batch_comparison.py      # Batch comparison across experiment folders
 │   ├── run_gt_comparison.py         # Compare abundance.tsv vs ground truth (TP/FP/FN/TN + 3 metric sets)
+│   ├── run_replicate_comparison.py  # Compare two biological replicates (concordance table + 3 metric sets)
 │   ├── run_eda.py                   # EDA: Priority 1 (index discrepancy) + Priority 6 (leaked transcripts)
-│   └── plot_training.py             # Training diagnostic figures from training_stats.pkl
+│   ├── plot_training.py             # Training diagnostic figures from training_stats.pkl
+│   └── explore_sim_data.py          # EDA on raw sim data: reads/ECs/GT correlation/theta distribution
 ├── test/                        # Unit tests (run from JOLI_Kallisto/ root)
 │   ├── test_JolitoKallisto.py
 │   ├── test_em_algorithm.py

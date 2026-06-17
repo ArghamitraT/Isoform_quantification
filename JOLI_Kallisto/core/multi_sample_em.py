@@ -11,17 +11,25 @@ Architecture:
   Outer loop (GD rounds):
     For each sample s (sequential):
       Run JoliEM with alpha_prior=alpha, init_theta=theta_s (warm-start)
-      → theta_s updated in place
-    Stack theta_matrix = np.stack(all_theta_s)    # shape (S, T)
-    GD step: DirichletOptimizer.update(theta_matrix)
+      → theta_s updated in place (full theta, includes single-tx)
+    Build theta_for_gd_matrix: per-sample theta with single-tx optionally excluded
+    GD step: DirichletOptimizer.update(theta_for_gd_matrix)
     → alpha updated; check GD convergence
 
 The posterior-mean M-step per round:
   theta_new[t] = (n[t] + alpha[t]) / sum(n + alpha)
 
 where n[t] is the expected count from the E-step (EC-level) and alpha is the
-shared Dirichlet concentration vector. Single-tx ECs are handled identically
-to single-sample mode (Fix A: raw counts added post-convergence).
+shared Dirichlet concentration vector.
+
+Two independent flags control single-tx EC handling:
+  em_include_single_tx  (default True):  single-tx counts included in the EM
+    M-step numerator every round — the E-step probability correctly reflects
+    each transcript's total abundance (single-tx + multi-tx).
+  gd_include_single_tx  (default False): single-tx counts included in the theta
+    passed to DirichletOptimizer.update(). When False (recommended), the GD
+    gradient is computed only from multi-tx ECs — where cross-sample sharing
+    genuinely helps resolve ambiguity — keeping alpha focused on disambiguation.
 
 Inputs:
   - List of sample directories, each containing bustools TCC output:
@@ -72,10 +80,12 @@ class MultiSampleJoliEM:
         alpha_initial:    float = 1.0,
         gd_convergence_tol: float = 1e-6,
         gd_steps_per_round: int = 10,
-        min_read_support:   float = 0.0,
-        loop_mode:          str   = "gd_wrapper",
-        save_snapshots:     bool  = False,
-        snapshot_interval:  int   = 5,
+        min_read_support:     float = 0.0,
+        loop_mode:            str   = "gd_wrapper",
+        save_snapshots:       bool  = False,
+        snapshot_interval:    int   = 5,
+        em_include_single_tx: bool  = True,
+        gd_include_single_tx: bool  = False,
     ):
         """
         Load TCC data for all samples and initialize the Dirichlet optimizer.
@@ -108,11 +118,22 @@ class MultiSampleJoliEM:
                                          "em_wrapper": EM convergence drives the outer loop,
                                          1 EM step + gd_steps_per_round GD steps per iteration
                                          — matches AT_code training structure.
-            save_snapshots     : bool  -- When True, save alpha + per-sample theta every
-                                         snapshot_interval rounds to snapshots.pkl.
-                                         Used by plot_convergence_animation.py. Default False.
-            snapshot_interval  : int   -- Save a snapshot every this many rounds.
-                                         Only used when save_snapshots=True. Default 5.
+            save_snapshots       : bool  -- When True, save alpha + per-sample theta every
+                                          snapshot_interval rounds to snapshots.pkl.
+                                          Used by plot_convergence_animation.py. Default False.
+            snapshot_interval    : int   -- Save a snapshot every this many rounds.
+                                          Only used when save_snapshots=True. Default 5.
+            em_include_single_tx : bool  -- Passed to each JoliEM instance. When True (default),
+                                          single-tx counts are included in the EM M-step so
+                                          the E-step probability reflects total abundance.
+                                          When False, original kallisto behaviour is used.
+            gd_include_single_tx : bool  -- When False (default), single-tx counts are subtracted
+                                          from the per-sample alpha before building the theta
+                                          matrix passed to DirichletOptimizer.update(). The GD
+                                          gradient is then driven purely by multi-tx ECs — where
+                                          cross-sample sharing resolves ambiguity. The full theta
+                                          (with single-tx) is still used for EM warm-start and
+                                          final abundance output. When True, mirrors old behaviour.
         """
         if len(sample_dirs) < 2:
             raise ValueError(
@@ -130,10 +151,12 @@ class MultiSampleJoliEM:
         self.alpha_initial      = alpha_initial
         self.gd_convergence_tol = gd_convergence_tol
         self.gd_steps_per_round = gd_steps_per_round
-        self.min_read_support   = min_read_support
-        self.loop_mode          = loop_mode
-        self.save_snapshots     = save_snapshots
-        self.snapshot_interval  = snapshot_interval
+        self.min_read_support     = min_read_support
+        self.loop_mode            = loop_mode
+        self.save_snapshots       = save_snapshots
+        self.snapshot_interval    = snapshot_interval
+        self.em_include_single_tx = em_include_single_tx
+        self.gd_include_single_tx = gd_include_single_tx
 
         if loop_mode not in ("gd_wrapper", "em_wrapper"):
             raise ValueError(
@@ -171,7 +194,8 @@ class MultiSampleJoliEM:
 
             self.tcc_data_list.append(tcc_data)
             self.weight_data_list.append(weight_data)
-            self.em_list.append(JoliEM(tcc_data, weight_data))
+            self.em_list.append(JoliEM(tcc_data, weight_data,
+                                       em_include_single_tx=em_include_single_tx))
 
         # Verify all samples share the same number of transcripts
         n_tx_list = [len(td.transcript_names) for td in self.tcc_data_list]
@@ -183,7 +207,9 @@ class MultiSampleJoliEM:
         self.n_transcripts = n_tx_list[0]
 
         print(f"\n[MultiSampleJoliEM] All samples loaded. "
-              f"n_samples={len(sample_dirs)}, n_transcripts={self.n_transcripts}")
+              f"n_samples={len(sample_dirs)}, n_transcripts={self.n_transcripts}, "
+              f"em_include_single_tx={em_include_single_tx}, "
+              f"gd_include_single_tx={gd_include_single_tx}")
 
         # --- Initialize shared Dirichlet optimizer ---
         self.dirichlet_opt = DirichletOptimizer(
@@ -221,9 +247,18 @@ class MultiSampleJoliEM:
               f"max_gd_rounds={self.max_gd_rounds}, "
               f"gd_convergence_tol={self.gd_convergence_tol}")
 
-        gd_loss_history = []   # list of loss lists, one per outer round
-        prev_gd_loss    = None
-        gd_converged    = False
+        gd_loss_history  = []   # list of loss lists, one per outer round
+        prev_gd_loss     = None
+        gd_converged     = False
+        theta_for_gd_list = [None] * len(self.sample_dirs)
+
+        # Record initialization snapshot (round=-1) before any training begins.
+        if self.save_snapshots:
+            init_thetas = [
+                np.full(self.n_transcripts, 1.0 / self.n_transcripts, dtype=np.float64)
+                for _ in self.em_list
+            ]
+            tracker.record_snapshot(-1, self.dirichlet_opt.get_alpha(), init_thetas)
 
         for gd_round in range(self.max_gd_rounds):
             print(f"\n[MultiSampleJoliEM] === GD round {gd_round + 1} / {self.max_gd_rounds} ===")
@@ -247,18 +282,29 @@ class MultiSampleJoliEM:
                     min_read_support = self.min_read_support,
                 )
 
-                # Store normalized theta (not raw alpha) for GD step
-                # theta = alpha / alpha.sum() gives normalized abundance
-                alpha_s = result.alpha
-                total_s = alpha_s.sum()
-                self.theta_list[s_idx] = alpha_s / total_s if total_s > 0 else alpha_s
+                # Full normalized theta — used for EM warm-start next round
+                theta_unnorm_s = result.theta_unnorm
+                total_s = theta_unnorm_s.sum()
+                self.theta_list[s_idx] = theta_unnorm_s / total_s if total_s > 0 else theta_unnorm_s
+
+                # Theta for GD: exclude single-tx counts when gd_include_single_tx=False
+                # so alpha learns purely from ambiguous multi-tx read patterns.
+                if self.gd_include_single_tx:
+                    theta_for_gd_list[s_idx] = self.theta_list[s_idx]
+                else:
+                    theta_unnorm_multi = np.maximum(theta_unnorm_s - em._single_tx_counts_per_tx, 0.0)
+                    total_multi = theta_unnorm_multi.sum()
+                    theta_for_gd_list[s_idx] = (
+                        theta_unnorm_multi / total_multi if total_multi > 0
+                        else self.theta_list[s_idx]
+                    )
 
                 em_rounds_this_round.append(result.n_rounds)
                 em_converged_this_round.append(result.converged)
 
             # --- GD step: update shared alpha ---
-            # Stack per-sample normalized theta into (S, T) matrix
-            theta_matrix = np.stack(self.theta_list)   # shape (S, T)
+            # Stack per-sample theta (multi-tx only when gd_include_single_tx=False)
+            theta_matrix = np.stack(theta_for_gd_list)   # shape (S, T)
 
             alpha_updated, round_loss_history = self.dirichlet_opt.update(
                 theta_matrix,
@@ -290,6 +336,10 @@ class MultiSampleJoliEM:
                 gd_loss           = last_loss,
             )
             tracker.print_round_summary(gd_round)
+
+            # Save snapshot every snapshot_interval rounds
+            if self.save_snapshots and gd_round % self.snapshot_interval == 0:
+                tracker.record_snapshot(gd_round, self.dirichlet_opt.get_alpha(), self.theta_list)
 
             if gd_converged:
                 break
@@ -342,10 +392,11 @@ class MultiSampleJoliEM:
               f"gd_steps_per_em={self.gd_steps_per_round}")
 
         # Initialize thetas uniformly — mirrors JoliEM's default uniform init
-        thetas = [
+        thetas         = [
             np.full(self.n_transcripts, 1.0 / self.n_transcripts, dtype=np.float64)
             for _ in self.em_list
         ]
+        thetas_for_gd  = [t.copy() for t in thetas]  # separate theta fed to GD
 
         # n_changed[s] tracks how many transcripts are still changing for sample s.
         # Start with large sentinel so the loop always runs at least one iteration.
@@ -374,11 +425,28 @@ class MultiSampleJoliEM:
                     min_read_support = self.min_read_support,
                     convergence_mode = self.convergence_mode,
                 )
+                # Full theta — used for EM warm-start next iteration
                 thetas[s_idx]         = theta_new
                 n_changed_list[s_idx] = n_changed
 
+                # Theta for GD: exclude single-tx when gd_include_single_tx=False.
+                # Recover approximate counts via total_all_reads then subtract single-tx.
+                if self.gd_include_single_tx:
+                    thetas_for_gd[s_idx] = theta_new
+                else:
+                    effective_total = (
+                        em._total_all_reads if em._em_include_single_tx
+                        else em._total_multi_reads
+                    )
+                    approx_counts = theta_new * effective_total
+                    alpha_multi   = np.maximum(approx_counts - em._single_tx_counts_per_tx, 0.0)
+                    total_multi   = alpha_multi.sum()
+                    thetas_for_gd[s_idx] = (
+                        alpha_multi / total_multi if total_multi > 0 else theta_new
+                    )
+
             # --- gd_steps_per_round Adam steps to update shared alpha ---
-            theta_matrix = np.stack(thetas)   # shape (S, T)
+            theta_matrix = np.stack(thetas_for_gd)   # shape (S, T)
             alpha_updated, round_loss_history = self.dirichlet_opt.update(
                 theta_matrix,
                 max_iterations = self.gd_steps_per_round,
@@ -462,10 +530,10 @@ class MultiSampleJoliEM:
             tcc_data   = self.tcc_data_list[s_idx]
             weight_data = self.weight_data_list[s_idx]
 
-            # Reconstruct raw alpha: theta * total_multi_reads + single-tx counts
-            # We use the alpha stored in the last EMResult via a final EM pass
-            # instead of reconstructing manually — just re-run one MAP EM round
-            # to get a proper EMResult for output_writer.
+            # Re-run one MAP EM round with the final theta as warm-start to apply
+            # zeroing and finalRound, producing a proper EMResult for output_writer.
+            # Single-tx counts are baked into the M-step inside run(), so alpha
+            # in the returned EMResult already accounts for all reads.
             em     = self.em_list[s_idx]
             result = em.run(
                 max_em_rounds    = 1,
@@ -478,7 +546,7 @@ class MultiSampleJoliEM:
 
             out_path = os.path.join(sample_out, "abundance.tsv")
             write_abundance(
-                alpha            = result.alpha,
+                theta_unnorm     = result.theta_unnorm,
                 eff_lens         = weight_data.eff_lens,
                 transcript_names = tcc_data.transcript_names,
                 output_path      = out_path,

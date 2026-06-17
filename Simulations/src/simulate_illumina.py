@@ -246,9 +246,9 @@ def write_read_to_isoform(isoform_counts_tsv: str, out_path: str) -> None:
         None
     """
     df = pd.read_csv(isoform_counts_tsv, sep="\t")
-    # expected_count in .sim.isoforms.results is the simulated read count
-    summary = df[["transcript_id", "expected_count"]].rename(
-        columns={"expected_count": "simulated_count"}
+    # rsem-simulate-reads names the count column "count" (not "expected_count")
+    summary = df[["transcript_id", "count"]].rename(
+        columns={"count": "simulated_count"}
     )
     summary = summary[summary["simulated_count"] > 0]
     summary.to_csv(out_path, sep="\t", index=False)

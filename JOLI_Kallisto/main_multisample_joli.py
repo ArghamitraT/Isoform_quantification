@@ -106,6 +106,14 @@ SAVE_SNAPSHOTS      = False             # True = save alpha + theta snapshots ev
 #                                      #   SNAPSHOT_INTERVAL rounds to snapshots.pkl
 #                                      #   Used by plot_convergence_animation.py
 SNAPSHOT_INTERVAL   = 5               # save every N rounds (only when SAVE_SNAPSHOTS=True)
+EM_INCLUDE_SINGLE_TX = True           # True  = single-tx counts included in EM M-step every round
+#                                      #   (corrected behaviour — E-step uses total abundance)
+#                                      # False = original kallisto behaviour
+#                                      #   (single-tx added post-convergence only)
+GD_INCLUDE_SINGLE_TX = False          # False (default) = single-tx excluded from theta passed to GD
+#                                      #   GD gradient driven only by multi-tx (ambiguous) ECs —
+#                                      #   where cross-sample sharing resolves ambiguity
+#                                      # True  = old behaviour (single-tx baked into GD theta)
 LOOP_MODE           = "gd_wrapper"     # Training loop structure:
 #                                      #   "gd_wrapper" — GD outer loop, EM to convergence
 #                                      #                  per round (original JOLI behaviour)
@@ -208,6 +216,17 @@ def parse_args() -> argparse.Namespace:
              "per iteration (AT_code style)."
     )
     parser.add_argument(
+        "--em_include_single_tx", default=None, choices=["true", "false"],
+        help="Include single-tx counts in the EM M-step every round. "
+             "true (default) = corrected behaviour; false = original kallisto behaviour."
+    )
+    parser.add_argument(
+        "--gd_include_single_tx", default=None, choices=["true", "false"],
+        help="Include single-tx counts in the theta passed to the GD optimizer. "
+             "false (default) = GD driven only by multi-tx ECs (recommended); "
+             "true = old behaviour (single-tx baked into GD theta)."
+    )
+    parser.add_argument(
         "--experiment_comment", default=None,
         help="Free-text description of this run, saved in experiment_description.log."
     )
@@ -263,24 +282,28 @@ def save_experiment_description(run_dir: str, sample_dirs: list,
                                 gd_steps_per_round: int,
                                 min_read_support: float,
                                 loop_mode: str,
+                                em_include_single_tx: bool,
+                                gd_include_single_tx: bool,
                                 experiment_comment: str) -> None:
     """
     Write experiment_description.log with effective runtime values and sample list.
 
     Args:
-        run_dir             : str       -- Timestamped result directory.
-        sample_dirs         : list[str] -- Resolved sample directories.
-        eff_len_mode        : str       -- Effective length mode used.
-        convergence_mode    : str       -- Convergence criterion used.
-        max_em_rounds       : int       -- Max inner EM rounds.
-        min_em_rounds       : int       -- Min inner EM rounds.
-        max_gd_rounds       : int       -- Max outer GD iterations.
-        gd_lr               : float     -- Adam learning rate.
-        alpha_initial       : float     -- Initial Dirichlet concentration.
-        gd_convergence_tol  : float     -- GD convergence tolerance.
-        gd_steps_per_round  : int       -- Adam steps per GD round.
-        min_read_support    : float     -- Fix A flag (0.0 = disabled).
-        experiment_comment  : str       -- Free-text description of this run.
+        run_dir              : str       -- Timestamped result directory.
+        sample_dirs          : list[str] -- Resolved sample directories.
+        eff_len_mode         : str       -- Effective length mode used.
+        convergence_mode     : str       -- Convergence criterion used.
+        max_em_rounds        : int       -- Max inner EM rounds.
+        min_em_rounds        : int       -- Min inner EM rounds.
+        max_gd_rounds        : int       -- Max outer GD iterations.
+        gd_lr                : float     -- Adam learning rate.
+        alpha_initial        : float     -- Initial Dirichlet concentration.
+        gd_convergence_tol   : float     -- GD convergence tolerance.
+        gd_steps_per_round   : int       -- Adam steps per GD round.
+        min_read_support     : float     -- Fix A flag (0.0 = disabled).
+        em_include_single_tx : bool      -- Single-tx in EM M-step flag.
+        gd_include_single_tx : bool      -- Single-tx in GD theta flag.
+        experiment_comment   : str       -- Free-text description of this run.
     """
     lines = [
         f"Script: {os.path.abspath(__file__)}",
@@ -306,7 +329,9 @@ def save_experiment_description(run_dir: str, sample_dirs: list,
         f"GD_CONVERGENCE_TOL: {gd_convergence_tol}",
         f"GD_STEPS_PER_ROUND: {gd_steps_per_round}",
         f"MIN_READ_SUPPORT:   {min_read_support}",
-        f"LOOP_MODE:          {loop_mode}",
+        f"LOOP_MODE:           {loop_mode}",
+        f"EM_INCLUDE_SINGLE_TX:{em_include_single_tx}",
+        f"GD_INCLUDE_SINGLE_TX:{gd_include_single_tx}",
         "",
         "=== SAMPLES ===",
     ]
@@ -417,6 +442,8 @@ def main() -> None:
     loop_mode          = args.loop_mode          or LOOP_MODE
     save_snapshots     = (args.save_snapshots == "true") if args.save_snapshots is not None else SAVE_SNAPSHOTS
     snapshot_interval  = args.snapshot_interval if args.snapshot_interval is not None else SNAPSHOT_INTERVAL
+    em_include_single_tx = (args.em_include_single_tx == "true") if args.em_include_single_tx is not None else EM_INCLUDE_SINGLE_TX
+    gd_include_single_tx = (args.gd_include_single_tx == "true") if args.gd_include_single_tx is not None else GD_INCLUDE_SINGLE_TX
     results_base       = args.results_base or RESULTS_BASE
     experiment_comment = args.experiment_comment if args.experiment_comment is not None else EXPERIMENT_COMMENT
 
@@ -454,7 +481,9 @@ def main() -> None:
     print(f"  gd_steps/em_round   : {gd_steps_per_round}")
     print(f"  min_read_support    : {min_read_support}  (Fix A: 0.0 = disabled)")
     print(f"  loop_mode           : {loop_mode}")
-    print(f"  save_snapshots      : {save_snapshots}  (interval={snapshot_interval})")
+    print(f"  save_snapshots         : {save_snapshots}  (interval={snapshot_interval})")
+    print(f"  em_include_single_tx   : {em_include_single_tx}")
+    print(f"  gd_include_single_tx   : {gd_include_single_tx}")
     if experiment_comment:
         print(f"  comment             : {experiment_comment}")
     print("=" * 60)
@@ -472,8 +501,10 @@ def main() -> None:
         gd_convergence_tol  = gd_convergence_tol,
         gd_steps_per_round  = gd_steps_per_round,
         min_read_support    = min_read_support,
-        loop_mode           = loop_mode,
-        experiment_comment  = experiment_comment,
+        loop_mode            = loop_mode,
+        em_include_single_tx = em_include_single_tx,
+        gd_include_single_tx = gd_include_single_tx,
+        experiment_comment   = experiment_comment,
     )
     save_code_snapshot(run_dir)
 
@@ -491,9 +522,11 @@ def main() -> None:
         gd_convergence_tol = gd_convergence_tol,
         gd_steps_per_round = gd_steps_per_round,
         min_read_support   = min_read_support,
-        loop_mode          = loop_mode,
-        save_snapshots     = save_snapshots,
-        snapshot_interval  = snapshot_interval,
+        loop_mode            = loop_mode,
+        save_snapshots       = save_snapshots,
+        snapshot_interval    = snapshot_interval,
+        em_include_single_tx = em_include_single_tx,
+        gd_include_single_tx = gd_include_single_tx,
     )
 
     results = ms.run()

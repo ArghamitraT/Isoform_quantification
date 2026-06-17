@@ -34,7 +34,8 @@ BUSTOOLS="bustools"   # full path if not on PATH
 
 # --- Reference files ---
 TRANSCRIPTOME_FASTA="/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/transcriptome.fasta"
-INDEX_FILE="/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/new_index.idx"
+INDEX_FILE="/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/new_index.idx"          # k=63 long-read index (default)
+SHORT_INDEX_FILE="/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/new_index_k31.idx" # k=31 short-read index (auto-used when BUILD_INDEX=1 and all samples are short)
 T2G_FILE="/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/t2g.txt"
 
 # --- Index settings ---
@@ -62,19 +63,21 @@ OUTPUT_BASE="/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
 # --- JOLI EM settings ---
 MAX_EM_ROUNDS=10000
 MIN_ROUNDS=50
-EFF_LEN_MODE="uniform"     # "uniform" (Phase 1) | "kallisto" (Phase 2+)
-                           # NOTE: kallisto quant-tcc --long uses uniform weights internally
-                           # (no fragment-length distribution available for long reads).
-                           # JK must match this or correlation drops from ~0.99 to ~0.89.
+EFF_LEN_MODE="auto"        # "auto"    = choose per sample: short→"kallisto", long→"uniform"
+                           # "uniform" = all transcripts get eff_len=1.0 (matches kallisto --long)
+                           # "kallisto" = use fragment-length distribution from flens.txt (short reads)
 EM_TYPE="plain"           # "plain" | "MAP" | "VI"
 SAVE_SNAPSHOTS=true    # true  = save theta snapshots every SNAPSHOT_INTERVAL rounds
                         #         (needed for plot_convergence_animation.py)
 SNAPSHOT_INTERVAL=5    # save a snapshot every N rounds (only used when SAVE_SNAPSHOTS=true)
+EM_INCLUDE_SINGLE_TX=false  # true  = single-tx counts included in EM M-step every round
+                           #         (corrected behaviour — E-step uses total abundance)
+                           # false = original kallisto behaviour (single-tx added post-convergence)
 
 # --- Experiment comment ---
 # Free-text description saved to experiment_description.log for this run.
 # Describe what you are testing, what changed, or what you expect.
-EXPERIMENT_COMMENT="we are running JK with snapshot on;now records the iteration 0 before any calculation"
+EXPERIMENT_COMMENT="JK SS short-read simulation; with single TX in EM"
 
 # --- Samples ---
 # Each entry: "sample_name  read_type  reads_dir  file1  [file2]"
@@ -86,13 +89,12 @@ SAMPLES=(
     # "toy       long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  toy.fastq"
     # "flnc_01   long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
     # "flnc_02   long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
-    # Short-read examples:
-    # "sim_sr_s1  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_short_1.fq  ds_100_num1_aln_01_short_2.fq"
-    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_short_1.fq  ds_100_num1_aln_21_short_2.fq"
+    # "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
+    # "sim2  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
+    # Short-read:
     # "sr_s1  short  /path/to/short_reads/  sample1_R1.fastq.gz  sample1_R2.fastq.gz"
-    # "sr_s2  short  /path/to/short_reads/  sample2_R1.fastq.gz  sample2_R2.fastq.gz"
-    "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
-    "sim2  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
+    "sim_sr_s1  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_short_1.fq  ds_100_num1_aln_01_short_2.fq"
+    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_short_1.fq  ds_100_num1_aln_21_short_2.fq"
 )
 
 # ============================================================
@@ -210,11 +212,27 @@ ERRORS=()
 # ============================================================
 # Step 0 (optional): Build kallisto index
 # Set BUILD_INDEX=1 in CONFIG to rebuild; 0 to skip.
+# Auto-detects read type: all-short → k=KMER_SIZE_SHORT + SHORT_INDEX_FILE;
+# any-long → k=KMER_SIZE_LONG + INDEX_FILE.
 # ============================================================
+_has_long=0
+for _entry in "${SAMPLES[@]}"; do
+    _type=$(awk '{print $2}' <<< "${_entry}")
+    if [[ "${_type}" == "long" ]]; then _has_long=1; break; fi
+done
+
+if [[ "${_has_long}" -eq 0 ]]; then
+    BUILD_KMER="${KMER_SIZE_SHORT}"
+    INDEX_FILE="${SHORT_INDEX_FILE}"   # avoid overwriting the long-read index
+    echo "[INFO] All samples are short-read — using k=${BUILD_KMER}, index: ${INDEX_FILE}" | tee -a "${LOG}"
+else
+    BUILD_KMER="${KMER_SIZE_LONG}"
+fi
+
 if [[ "${BUILD_INDEX}" == "1" ]]; then
-    echo "Step 0: kallisto index (k=${KMER_SIZE_LONG}, long-read k-mer)" | tee -a "${LOG}"
+    echo "Step 0: kallisto index (k=${BUILD_KMER})" | tee -a "${LOG}"
     [[ ! -f "${TRANSCRIPTOME_FASTA}" ]] && echo "ERROR: TRANSCRIPTOME_FASTA not found: ${TRANSCRIPTOME_FASTA}" | tee -a "${LOG}" && exit 1
-    "${KALLISTO}" index --index "${INDEX_FILE}" -k "${KMER_SIZE_LONG}" "${TRANSCRIPTOME_FASTA}" \
+    "${KALLISTO}" index --index "${INDEX_FILE}" -k "${BUILD_KMER}" "${TRANSCRIPTOME_FASTA}" \
         2>&1 | tee -a "${LOG}"
     echo "[OK] Index built: ${INDEX_FILE}" | tee -a "${LOG}"
 else
@@ -349,17 +367,77 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
         fi
     done
 
+    # ---- Resolve eff_len_mode per sample ----
+    if [[ "${EFF_LEN_MODE}" == "auto" ]]; then
+        if [[ "${SAMPLE_READ_TYPE}" == "short" ]]; then
+            RESOLVED_EFF_LEN_MODE="kallisto"
+        else
+            RESOLVED_EFF_LEN_MODE="uniform"
+        fi
+        echo "  eff_len_mode: auto → ${RESOLVED_EFF_LEN_MODE} (read_type=${SAMPLE_READ_TYPE})" | tee -a "${LOG}"
+    else
+        RESOLVED_EFF_LEN_MODE="${EFF_LEN_MODE}"
+    fi
+
+    # ---- Step 3.5: generate flens.txt (only when eff_len_mode=kallisto) ----
+    # flens.txt is required by main_joli.py for kallisto eff_len_mode. It is produced
+    # by kallisto quant-tcc; the JK pipeline skips quant-tcc so we run it here once
+    # and cache the result. Skipped if flens.txt already exists in the cache dir.
+    if [[ "${RESOLVED_EFF_LEN_MODE}" == "kallisto" ]]; then
+        if [[ -f "${CACHE_DIR}/flens.txt" ]]; then
+            echo "Step 3.5: flens.txt already cached — skipping quant-tcc" | tee -a "${LOG}"
+        else
+            echo "" | tee -a "${LOG}"
+            echo "Step 3.5: kallisto quant-tcc → generate flens.txt" | tee -a "${LOG}"
+            if [[ "${SAMPLE_READ_TYPE}" == "long" ]]; then
+                "${KALLISTO}" quant-tcc \
+                    -t "${THREADS}" \
+                    --long -P "${PLATFORM}" \
+                    "${CACHE_DIR}/count.mtx" \
+                    -i "${INDEX_FILE}" \
+                    -e "${CACHE_DIR}/count.ec.txt" \
+                    -o "${CACHE_DIR}/" \
+                    2>&1 | tee -a "${LOG}"
+            else
+                # For short paired-end reads: pass the FLD histogram written by
+                # kallisto bus (flens.txt) so quant-tcc computes proper per-transcript
+                # effective lengths. Mirrors the --fld-file pattern in run_lr_kallisto.sh.
+                FLD_FLAG_35=""
+                if [[ -f "${CACHE_DIR}/flens.txt" ]]; then
+                    FLD_FLAG_35="--fld-file ${CACHE_DIR}/flens.txt"
+                fi
+                "${KALLISTO}" quant-tcc \
+                    -t "${THREADS}" \
+                    ${FLD_FLAG_35} \
+                    "${CACHE_DIR}/count.mtx" \
+                    -i "${INDEX_FILE}" \
+                    -e "${CACHE_DIR}/count.ec.txt" \
+                    -o "${CACHE_DIR}/" \
+                    2>&1 | tee -a "${LOG}"
+            fi
+            if [[ -f "${CACHE_DIR}/flens.txt" ]]; then
+                echo "  [OK] flens.txt cached: ${CACHE_DIR}/flens.txt" | tee -a "${LOG}"
+            else
+                echo "  WARNING: flens.txt not produced — falling back to eff_len_mode=uniform" | tee -a "${LOG}"
+                RESOLVED_EFF_LEN_MODE="uniform"
+            fi
+        fi
+        # copy flens.txt to experiment result dir
+        [[ -f "${CACHE_DIR}/flens.txt" ]] && cp "${CACHE_DIR}/flens.txt" "${SAMPLE_RESULT_DIR}/flens.txt"
+    fi
+
     # ---- Step 4: JOLI EM ----
     echo "Step 4: JOLI EM (main_joli.py)" | tee -a "${LOG}"
-    "${PYTHON}" "${SCRIPT_DIR}/../main_joli.py" \
+    "${PYTHON}" -m pdb "${SCRIPT_DIR}/../main_joli.py" \
         --sample_dir    "${CACHE_DIR}" \
         --output_dir    "${SAMPLE_RESULT_DIR}" \
-        --eff_len_mode  "${EFF_LEN_MODE}" \
+        --eff_len_mode  "${RESOLVED_EFF_LEN_MODE}" \
         --max_em_rounds "${MAX_EM_ROUNDS}" \
         --min_rounds    "${MIN_ROUNDS}" \
         --em_type            "${EM_TYPE}" \
         --save_snapshots     "${SAVE_SNAPSHOTS}" \
         --snapshot_interval  "${SNAPSHOT_INTERVAL}" \
+        --em_include_single_tx  "${EM_INCLUDE_SINGLE_TX}" \
         2>&1 | tee -a "${LOG}"
 
     if [[ $? -ne 0 ]]; then

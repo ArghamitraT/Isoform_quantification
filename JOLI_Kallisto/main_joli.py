@@ -70,6 +70,10 @@ SAVE_SNAPSHOTS             = False       # True = save theta snapshots every SNA
 #                                        #   rounds to <output_dir>/theta_snapshots.pkl
 #                                        #   Used by plot_convergence_animation.py
 SNAPSHOT_INTERVAL          = 5          # save a snapshot every N EM rounds
+EM_INCLUDE_SINGLE_TX       = True       # True  = single-tx counts included in M-step every round
+#                                        #   (corrected behaviour — E-step uses total abundance)
+#                                        # False = original kallisto behaviour
+#                                        #   (single-tx added post-convergence only)
 # ============================================================
 
 
@@ -129,6 +133,12 @@ def parse_args() -> argparse.Namespace:
         "--snapshot_interval", type=int, default=SNAPSHOT_INTERVAL,
         help="Save a theta snapshot every N EM rounds (only used when --save_snapshots true)."
     )
+    parser.add_argument(
+        "--em_include_single_tx", default=str(EM_INCLUDE_SINGLE_TX).lower(),
+        choices=["true", "false"],
+        help="Include single-tx read counts in the EM M-step every round. "
+             "true (default) = corrected behaviour; false = original kallisto behaviour."
+    )
     return parser.parse_args()
 
 
@@ -170,10 +180,12 @@ def main() -> None:
     print(f"  convergence_mode : {args.convergence_mode}")
     print(f"  save_snapshots   : {args.save_snapshots}")
     print(f"  snapshot_interval: {args.snapshot_interval}")
+    print(f"  em_include_single_tx: {args.em_include_single_tx}")
     print("=" * 60)
 
-    # Resolve save_snapshots flag (CLI passes string "true"/"false")
-    save_snapshots = args.save_snapshots.lower() == "true"
+    # Resolve boolean flags (CLI passes string "true"/"false")
+    save_snapshots       = args.save_snapshots.lower()       == "true"
+    em_include_single_tx = args.em_include_single_tx.lower() == "true"
 
     # --- Step 1.1: Load TCC data ---
     tcc_data = load_tcc_data(sample_dir)
@@ -195,7 +207,7 @@ def main() -> None:
             "Use --em_type plain for Phase 1."
         )
 
-    em = JoliEM(tcc_data, weight_data)
+    em = JoliEM(tcc_data, weight_data, em_include_single_tx=em_include_single_tx)
     em_result = em.run(
         max_em_rounds     = args.max_em_rounds,
         min_rounds        = args.min_rounds,
@@ -205,7 +217,7 @@ def main() -> None:
 
     print(f"\n[main_joli] EM finished: "
           f"rounds={em_result.n_rounds}, converged={em_result.converged}, "
-          f"nonzero_tx={int((em_result.alpha > 0).sum())}")
+          f"nonzero_tx={int((em_result.theta_unnorm > 0).sum())}")
 
     # --- Save theta snapshots (if enabled) ---
     if save_snapshots and em_result.snapshots:
@@ -220,7 +232,7 @@ def main() -> None:
     # --- Step 1.4: Write abundance.tsv ---
     output_path = os.path.join(output_dir, "abundance.tsv")
     summary = write_abundance(
-        alpha=em_result.alpha,
+        theta_unnorm=em_result.theta_unnorm,
         eff_lens=weight_data.eff_lens,
         transcript_names=tcc_data.transcript_names,
         output_path=output_path,

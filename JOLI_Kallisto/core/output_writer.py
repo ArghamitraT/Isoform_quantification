@@ -8,22 +8,22 @@ Output file columns (tab-separated, matches kallisto abundance.tsv exactly):
   target_id   : transcript name
   length      : transcript length in bp (0 if unavailable in Phase 1)
   eff_length  : effective length used by EM
-  est_counts  : raw expected read counts from EM = alpha[t]
+  est_counts  : raw expected read counts from EM = theta_unnorm[t]
                 (multi-tx fractional counts + single-tx raw counts)
-  tpm         : transcripts per million = (alpha[t]/eff_len[t]) / sum(alpha/eff_len) * 1e6
+  tpm         : transcripts per million = (theta_unnorm[t]/eff_len[t]) / sum(theta_unnorm/eff_len) * 1e6
 
-All transcripts are written (including those with alpha=0), sorted by
+All transcripts are written (including those with theta_unnorm=0), sorted by
 transcript index — same ordering as kallisto.
 
 TPM formula (from kallisto PlaintextWriter.cpp compute_rho()):
-  rho[t]  = alpha[t] / eff_len[t]
+  rho[t]  = theta_unnorm[t] / eff_len[t]
   tpm[t]  = rho[t] / sum(rho) * 1e6
 
-Note: alpha here is EMResult.alpha (raw expected counts, not normalized).
-This matches kallisto's alpha_ after the EM loop + single-tx additions.
+Note: theta_unnorm here is EMResult.theta_unnorm (raw expected counts, not normalized).
+This matches kallisto's theta_unnorm_ after the EM loop + single-tx additions.
 
 Inputs:
-  - alpha             : np.ndarray from EMResult.alpha (raw expected counts)
+  - theta_unnorm             : np.ndarray from EMResult.theta_unnorm (raw expected counts)
   - eff_lens          : np.ndarray from WeightData.eff_lens
   - transcript_names  : list[str] from TCCData.transcript_names
   - output_path       : str -- where to write abundance.tsv
@@ -40,7 +40,7 @@ import numpy as np
 
 
 def write_abundance(
-    alpha: np.ndarray,
+    theta_unnorm: np.ndarray,
     eff_lens: np.ndarray,
     transcript_names: list,
     output_path: str,
@@ -53,15 +53,15 @@ def write_abundance(
       target_id  length  eff_length  est_counts  tpm
 
     TPM computation (mirrors kallisto PlaintextWriter.cpp compute_rho()):
-      rho[t]  = alpha[t] / eff_lens[t]
+      rho[t]  = theta_unnorm[t] / eff_lens[t]
       tpm[t]  = rho[t] / sum(rho) * 1e6
 
     Estimated counts:
-      est_counts[t] = alpha[t]  (raw expected counts from EM; matches kallisto alpha_)
+      est_counts[t] = theta_unnorm[t]  (raw expected counts from EM; matches kallisto theta_unnorm_)
 
     Args:
-        alpha             : np.ndarray (float64, shape [n_transcripts])
-                            Raw expected counts from EMResult.alpha.
+        theta_unnorm             : np.ndarray (float64, shape [n_transcripts])
+                            Raw expected counts from EMResult.theta_unnorm.
                             Multi-tx fractional counts + single-tx raw counts.
                             Does NOT need to sum to 1.
         eff_lens          : np.ndarray (float64, shape [n_transcripts])
@@ -79,7 +79,7 @@ def write_abundance(
           "n_transcripts"       : total transcripts written
           "n_nonzero"           : transcripts with tpm > 0
           "total_tpm"           : sum of TPM values (should be ~1e6)
-          "total_est_counts"    : sum of alpha (total expected reads assigned)
+          "total_est_counts"    : sum of theta_unnorm (total expected reads assigned)
           "output_path"         : path written to
 
     Raises:
@@ -88,8 +88,8 @@ def write_abundance(
     n_tx = len(transcript_names)
 
     # --- Input validation ---
-    if len(alpha) != n_tx:
-        raise ValueError(f"alpha length {len(alpha)} != n_transcripts {n_tx}")
+    if len(theta_unnorm) != n_tx:
+        raise ValueError(f"theta_unnorm length {len(theta_unnorm)} != n_transcripts {n_tx}")
     if len(eff_lens) != n_tx:
         raise ValueError(f"eff_lens length {len(eff_lens)} != n_transcripts {n_tx}")
     if transcript_lengths is not None and len(transcript_lengths) != n_tx:
@@ -101,7 +101,7 @@ def write_abundance(
     # Sentinel values (e.g. UINT32_MAX from flens.txt) produce near-zero weights;
     # guard against true zero eff_lens to avoid division by zero.
     safe_eff_lens = np.where(eff_lens > 0, eff_lens, 1.0)
-    rho = alpha / safe_eff_lens          # shape (n_tx,)
+    rho = theta_unnorm / safe_eff_lens          # shape (n_tx,)
 
     # --- TPM: normalize rho to parts per million ---
     rho_sum = rho.sum()
@@ -110,8 +110,8 @@ def write_abundance(
     else:
         tpm = np.zeros(n_tx, dtype=np.float64)
 
-    # --- Estimated counts: alpha directly (raw expected reads per transcript) ---
-    est_counts = alpha                   # shape (n_tx,)
+    # --- Estimated counts: theta_unnorm directly (raw expected reads per transcript) ---
+    est_counts = theta_unnorm                   # shape (n_tx,)
 
     # --- Lengths ---
     if transcript_lengths is not None:

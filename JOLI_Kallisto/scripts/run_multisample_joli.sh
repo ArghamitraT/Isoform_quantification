@@ -84,14 +84,20 @@ SAVE_SNAPSHOTS=true    # true  = save alpha+theta snapshots every SNAPSHOT_INTER
 #                        #          to snapshots.pkl — used by plot_convergence_animation.py
 #                        # false = disabled (default; saves disk space)
 SNAPSHOT_INTERVAL=5    # save a snapshot every N rounds (only used when SAVE_SNAPSHOTS=true)
-LOOP_MODE="em_wrapper"  # Training loop structure:
+EM_INCLUDE_SINGLE_TX=true   # true  = single-tx counts included in EM M-step every round
+#                           #         (corrected behaviour — E-step uses total abundance)
+#                           # false = original kallisto behaviour (single-tx added post-convergence)
+GD_INCLUDE_SINGLE_TX=true  # false (default) = single-tx excluded from GD theta
+#                           #   GD gradient driven only by multi-tx (ambiguous) ECs
+#                           # true  = old behaviour (single-tx baked into GD theta)
+LOOP_MODE="gd_wrapper"  # Training loop structure:
 #                        #   "gd_wrapper" — GD outer loop, EM to convergence per round (default)
 #                        #   "em_wrapper" — EM convergence drives outer loop, 1 EM step +
 #                        #                 GD_STEPS_PER_ROUND Adam steps per iteration (AT_code)
 
 # Free-text description of this experiment run — printed at startup and saved in
 # experiment_description.log. Leave empty for no comment.
-EXPERIMENT_COMMENT="em_wrapper; with snapshot ON; now records the iteration 0 before any calculation"
+EXPERIMENT_COMMENT="single tx em TRUE, single tx gd true, gd wrapper (replica 1 real data)"
 
 # --- Samples ---
 # Each entry: "sample_name  read_type  reads_dir  file1  [file2]"
@@ -101,13 +107,18 @@ EXPERIMENT_COMMENT="em_wrapper; with snapshot ON; now records the iteration 0 be
 # Minimum 2 samples required for multi-sample MAP EM.
 SAMPLES=(
     # Long-read examples:
-    # "flnc_01  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
+    "flnc_01  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
     # "flnc_02  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
     # Short-read examples:
     # "sr_s1  short  /path/to/short_reads/  sample1_R1.fastq.gz  sample1_R2.fastq.gz"
     # "sr_s2  short  /path/to/short_reads/  sample2_R1.fastq.gz  sample2_R2.fastq.gz"
-    "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
-    "sim2  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
+    # "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
+    # "sim2  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
+    "flnc_31  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_31.fastq"
+    # "flnc_32  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_32.fastq"
+    # "flnc_51  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_51.fastq"
+    # "flnc_52  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_52.fastq"
+    
 )
 
 # ============================================================
@@ -365,6 +376,8 @@ echo "Step 4: Multi-sample MAP EM (main_multisample_joli.py)" | tee -a "${PREP_L
     --loop_mode           "${LOOP_MODE}" \
     --save_snapshots      "${SAVE_SNAPSHOTS}" \
     --snapshot_interval   "${SNAPSHOT_INTERVAL}" \
+    --em_include_single_tx  "${EM_INCLUDE_SINGLE_TX}" \
+    --gd_include_single_tx  "${GD_INCLUDE_SINGLE_TX}" \
     --experiment_comment  "${EXPERIMENT_COMMENT}" \
     2>&1 | tee -a "${PREP_LOG}"
 

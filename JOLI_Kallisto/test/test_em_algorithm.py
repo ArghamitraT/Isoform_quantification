@@ -76,20 +76,20 @@ def test_plain_em_backward_compat():
 
         passed &= check(isinstance(result, EMResult),
                         "run() returns EMResult")
-        passed &= check(result.alpha.shape == (3,),
+        passed &= check(result.theta_unnorm.shape == (3,),
                         "alpha shape == (3,)",
-                        f"got {result.alpha.shape}")
-        passed &= check(result.alpha.sum() > 0,
+                        f"got {result.theta_unnorm.shape}")
+        passed &= check(result.theta_unnorm.sum() > 0,
                         "alpha sum > 0")
-        passed &= check(int((result.alpha > 0).sum()) > 0,
+        passed &= check(int((result.theta_unnorm > 0).sum()) > 0,
                         "at least one nonzero transcript")
         # Single-tx counts must appear in alpha (Fix A)
-        passed &= check(result.alpha[0] >= 50,
+        passed &= check(result.theta_unnorm[0] >= 50,
                         "tx0 alpha >= 50 (includes single-tx EC0 count)",
-                        f"got {result.alpha[0]:.4f}")
-        passed &= check(result.alpha[1] >= 30,
+                        f"got {result.theta_unnorm[0]:.4f}")
+        passed &= check(result.theta_unnorm[1] >= 30,
                         "tx1 alpha >= 30 (includes single-tx EC1 count)",
-                        f"got {result.alpha[1]:.4f}")
+                        f"got {result.theta_unnorm[1]:.4f}")
     finally:
         shutil.rmtree(tmpdir)
     return passed
@@ -253,7 +253,7 @@ def test_init_theta_warm_start():
                         init_theta=init)
         passed &= check(isinstance(result, EMResult),
                         "run() with init_theta returns EMResult")
-        passed &= check(result.alpha.shape == (3,),
+        passed &= check(result.theta_unnorm.shape == (3,),
                         "alpha shape correct with init_theta")
 
         # Warm-start from zeros must not crash — falls back to uniform
@@ -320,10 +320,10 @@ def test_posterior_mean_formula_one_round():
         # theta = [60/112, 52/112] — no single-tx ECs so alpha = theta * 100
         expected_alpha = np.array([60.0 / 112.0 * 100, 52.0 / 112.0 * 100])
 
-        diff = np.abs(result.alpha - expected_alpha)
+        diff = np.abs(result.theta_unnorm - expected_alpha)
         passed &= check(diff.max() < 1e-6,
                         "MAP alpha after 1 round matches manual formula",
-                        f"expected={expected_alpha}, got={result.alpha}, diff={diff}")
+                        f"expected={expected_alpha}, got={result.theta_unnorm}, diff={diff}")
     finally:
         shutil.rmtree(tmpdir)
     return passed

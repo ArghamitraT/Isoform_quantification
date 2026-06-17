@@ -132,21 +132,19 @@ def _extract_attr(attrs: str, key: str) -> str:
 
 def build_expr_file(
     abundances_tsv: str,
-    gpd: dict,
-    total_reads: int,
     out_path: str,
 ) -> None:
     """
-    Convert abundances TSV to IsoSeqSim expression file (GPD + read count).
+    Convert abundances TSV to IsoSeqSim expression file format.
 
-    Read counts are computed as: count_i = round(TPM_i / sum(TPM) * total_reads).
-    Transcripts with no GPD entry (not in GTF) are skipped with a warning.
+    IsoSeqSim's py_isoseqsim_generate_expr_matrix_by_fixed_count.py reads:
+      col 0 = transcript_id, col 2 = TPM value.
+    IsoSeqSim generates its own GPD from the GTF internally — we only need
+    to supply the TPM values here.
 
     Args:
-        abundances_tsv (str):  Path to Phase 2 abundances TSV.
-        gpd            (dict): {transcript_id: gpd_line} from gtf_to_gpd().
-        total_reads    (int):  Total read count to distribute across transcripts.
-        out_path       (str):  Destination expression file path.
+        abundances_tsv (str): Path to Phase 2 abundances TSV (transcript_id, TPM).
+        out_path       (str): Destination expression file path.
 
     Returns:
         None
@@ -154,32 +152,15 @@ def build_expr_file(
     print(f"[simulate_pacbio] Building IsoSeqSim expression file → {out_path}")
 
     abund = pd.read_csv(abundances_tsv, sep="\t")
-    tpm_total = abund["TPM"].sum()
-    if tpm_total == 0:
-        raise ValueError("All TPM values are zero — cannot compute read counts.")
+    expressed = abund[abund["TPM"] > 0]
 
-    # Convert TPM → read counts
-    abund["read_count"] = (abund["TPM"] / tpm_total * total_reads).round().astype(int)
-
-    skipped = 0
-    written = 0
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as fh:
-        for _, row in abund.iterrows():
-            tid = row["transcript_id"]
-            cnt = row["read_count"]
-            if tid not in gpd:
-                skipped += 1
-                continue
-            if cnt == 0:
-                continue
-            fh.write(f"{gpd[tid]}\t{cnt}\n")
-            written += 1
+        for _, row in expressed.iterrows():
+            # Format: transcript_id \t 0 \t TPM  (col 2 = TPM, as IsoSeqSim expects)
+            fh.write(f"{row['transcript_id']}\t0\t{row['TPM']:.6f}\n")
 
-    if skipped:
-        print(f"[simulate_pacbio] Skipped {skipped} transcripts not found in GTF")
-    print(f"[simulate_pacbio] Expression file: {written} transcripts, "
-          f"{abund['read_count'].sum():,} total reads")
+    print(f"[simulate_pacbio] Expression file: {len(expressed)} transcripts written")
 
 
 # ── IsoSeqSim runner ─────────────────────────────────────────────────────────
@@ -241,9 +222,20 @@ def run_isoseqsim(
     if keep_isoform_ids:
         cmd.append("--keep_isoform_ids")
 
+    # Prepend conda Python bin to PATH so IsoSeqSim's shebang-launched utilities
+    # (py_isoseqsim_*.py) resolve to the conda Python rather than system Python.
+    import os
+    env = os.environ.copy()
+    conda_bin = str(Path(sys.executable).parent)
+    env["PATH"] = conda_bin + os.pathsep + env.get("PATH", "")
+
     print(f"[simulate_pacbio] Running IsoSeqSim ({read_count_millions}M reads)...")
     print(f"  Command: {' '.join(cmd)}")
-    _run(cmd)
+    import subprocess as _sp
+    result = _sp.run(cmd, env=env)
+    if result.returncode != 0:
+        print(f"[simulate_pacbio] ERROR: IsoSeqSim failed (exit {result.returncode})")
+        sys.exit(result.returncode)
     print(f"[simulate_pacbio] IsoSeqSim complete")
 
 
@@ -275,7 +267,8 @@ def parse_transcript_output(transcript_file: str, out_counts: str, out_r2i: str)
             read_count = int(parts[-1]) if parts[-1].isdigit() else 0
             rows.append({"transcript_id": tx_id, "simulated_count": read_count})
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(rows, columns=["transcript_id", "simulated_count"]) if rows \
+         else pd.DataFrame(columns=["transcript_id", "simulated_count"])
 
     # isoform_counts — all transcripts
     df.to_csv(out_counts, sep="\t", index=False)
@@ -358,15 +351,12 @@ def main():
     print(f"  error rates      : sub={args.sub_rate}, ins={args.ins_rate}, del={args.del_rate}")
     print("=" * 60)
 
-    # Step 1 — GTF → GenePred
-    gpd = gtf_to_gpd(gtf_path)
-
-    # Step 2 — Build expression file
+    # Step 1 — Build expression file (IsoSeqSim generates its own GPD from the GTF)
     expr_file = str(out_dir / "pacbio_expr.txt")
-    build_expr_file(args.abundances, gpd, args.read_count, expr_file)
+    build_expr_file(args.abundances, expr_file)
 
     # Step 3 — Run IsoSeqSim
-    output_fasta      = str(out_dir / "PacBio.simulated.fasta")
+    output_fasta      = str(out_dir / "PacBio.simulated")  # IsoSeqSim appends .fasta automatically
     output_transcript = str(out_dir / "pacbio_transcript.txt")
     tempdir           = str(out_dir / "isoseqsim_tmp")
 

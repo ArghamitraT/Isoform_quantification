@@ -60,13 +60,12 @@ RESULTS_BASE = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
 # Map sample subfolder name → absolute path to ground truth TSV.
 # Ground truth TSV format: CSV with columns (unnamed_index, transcript_name, tpm)
 SAMPLE_GT_MAP = {
-    # Long-read (PacBio) simulated samples
+    # Long-read (PacBio) simulated samples — PB GT (IsoSeq read compatibility, CSV with unnamed index)
     "sim1": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample1_gt.tsv",
     "sim2": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample2_gt.tsv",
-    # Short-read (Illumina) simulated samples — same expression profile as sim1/sim2,
-    # different read technology. Map to the same ground truth files.
-    "sim_sr_s1": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample1_gt.tsv",
-    "sim_sr_s2": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample2_gt.tsv",
+    # Short-read (Illumina) simulated samples — Illumina GT (RSEM quantification, TSV, no unnamed index)
+    "sim_sr_s1": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/ill_sample1_gt.tsv",
+    "sim_sr_s2": "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/ill_sample2_gt.tsv",
 }
 
 ABUNDANCE_FILE = "abundance.tsv"
@@ -109,7 +108,11 @@ def read_abundance(path: Path) -> pd.DataFrame:
 
 def read_ground_truth(path: Path) -> pd.DataFrame:
     """
-    Read a ground truth CSV (comma-separated, columns: unnamed_index, transcript_name, tpm).
+    Read a ground truth file in either supported format:
+      - PB format  : CSV, unnamed integer index as first column, then transcript_name, tpm
+      - Ill format : TSV (RSEM output), no index column, columns include transcript_name and tpm
+
+    Auto-detects separator by peeking at the first line; drops unnamed index column if present.
 
     Args:
         path : Path -- path to ground truth TSV/CSV.
@@ -117,8 +120,17 @@ def read_ground_truth(path: Path) -> pd.DataFrame:
     Returns:
         pd.DataFrame with columns [transcript_id, tpm].
     """
-    df = pd.read_csv(path, index_col=0)   # first column is unnamed integer index
-    # Rename to standard names
+    # Detect separator from first line — TSV uses tabs, PB CSV uses commas
+    with open(path) as f:
+        first_line = f.readline()
+    sep = "\t" if "\t" in first_line else ","
+
+    df = pd.read_csv(path, sep=sep)
+
+    # Drop unnamed integer index column present in PB CSV format
+    if df.columns[0].startswith("Unnamed"):
+        df = df.drop(columns=[df.columns[0]])
+
     id_candidates  = ["transcript_name", "transcript_id", "target_id", "Name"]
     val_candidates = ["tpm", "TPM", "est_counts"]
     id_col  = next((c for c in id_candidates  if c in df.columns), df.columns[0])
@@ -241,15 +253,14 @@ def compare_sample(abund_path: Path, gt_path: Path, sample: str) -> dict:
 
     # ----------------------------------------------------------
     # Universe 2: ACTIVE — GT ∪ non-zero predicted
-    # Excludes TN pairs. Fair comparison across methods regardless
+    # Excludes TN (0,0) pairs. Fair comparison across methods regardless
     # of index size (LK already behaves this way since it only
     # writes non-zero transcripts to its output file).
+    # Built from merged_all so the filter is exact: keep rows where
+    # at least one side is non-zero.
     # ----------------------------------------------------------
-    abund_nz = abund[abund["tpm"] > 0]
-    merged_active = abund_nz.merge(gt, on="transcript_id", how="outer",
-                                   suffixes=("_pred", "_gt"))
-    merged_active["tpm_pred"] = merged_active["tpm_pred"].fillna(0.0)
-    merged_active["tpm_gt"]   = merged_active["tpm_gt"].fillna(0.0)
+    active_mask = (merged_all["tpm_pred"] > 0) | (merged_all["tpm_gt"] > 0)
+    merged_active = merged_all[active_mask].copy()
 
     x_active    = merged_active["tpm_pred"].to_numpy()
     y_active    = merged_active["tpm_gt"].to_numpy()
