@@ -128,13 +128,16 @@ class JoliEM:
         Args:
             tcc_data             : TCCData    -- Parsed bustools output.
             weight_data          : WeightData -- Effective lengths and EC weights.
-            em_include_single_tx : bool       -- When True (default), single-tx read counts
-                                                are added to the M-step numerator every round
-                                                so the E-step probability reflects total
+            em_include_single_tx : bool       -- When True, single-tx read counts are added
+                                                to the M-step numerator every round so the
+                                                E-step for multi-tx ECs reflects total
                                                 abundance (single-tx + multi-tx).
-                                                When False, single-tx counts are excluded from
-                                                the EM loop (original behaviour — matches
-                                                kallisto EMAlgorithm.h exactly).
+                                                Matches kallisto's SHORT-READ EM path
+                                                (EMAlgorithm.h: single-tx set in next_alpha
+                                                at the start of every round).
+                                                When False, single-tx excluded from EM loop,
+                                                added post-convergence only — matches
+                                                kallisto's LONG-READ EM path.
         """
         self.n_transcripts         = len(tcc_data.transcript_names)
         self._em_include_single_tx = em_include_single_tx

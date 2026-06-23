@@ -227,11 +227,14 @@ def load_flens(sample_dir: str, n_transcripts: int) -> np.ndarray:
         FileNotFoundError : If flens.txt does not exist in sample_dir.
         ValueError        : If the number of values does not match n_transcripts.
     """
-    flens_path = os.path.join(sample_dir, "flens.txt")
+    # joli_efflen.txt = per-transcript eff_lens (218255 values for JOLI EM).
+    # Named separately from kallisto bus's flens.txt (FLD histogram, 1000 values).
+    flens_path = os.path.join(sample_dir, "joli_efflen.txt")
     if not os.path.exists(flens_path):
         raise FileNotFoundError(
-            f"flens.txt not found in {sample_dir}. "
-            "It is produced by kallisto quant-tcc. "
+            f"joli_efflen.txt not found in {sample_dir}. "
+            "It is produced by Step 3.5 (kallisto quant for short reads, "
+            "quant-tcc --long for long reads). "
             "Use --eff_len_mode uniform if it is unavailable."
         )
 
@@ -243,8 +246,8 @@ def load_flens(sample_dir: str, n_transcripts: int) -> np.ndarray:
 
     if len(values) != n_transcripts:
         raise ValueError(
-            f"flens.txt has {len(values)} entries but n_transcripts={n_transcripts}. "
-            "Ensure flens.txt was generated with the same index as transcripts.txt."
+            f"joli_efflen.txt has {len(values)} entries but n_transcripts={n_transcripts}. "
+            "Ensure joli_efflen.txt was generated with the same index as transcripts.txt."
         )
 
     # Checkpoint: report sentinel count

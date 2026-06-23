@@ -11,7 +11,7 @@
 #     1. kallisto bus               — align reads → output.bus
 #     2. bustools sort              — sort .bus file
 #     3. bustools count             — generate TCC count matrix
-#     4. kallisto quant-tcc         — EM quantification → abundance.tsv
+#     4. kallisto quant (short) / quant-tcc (long)  — EM → abundance.tsv
 #
 #   All steps run for every sample in the SAMPLES array.
 #   Set BUILD_INDEX=1 to rebuild the index before the sample loop;
@@ -366,58 +366,67 @@ for entry in "${SAMPLES[@]}"; do
         echo "  [OK] bustools count done. TCC files cached: ${CACHE_DIR}" | tee -a "${LOG}"
     fi
 
-    # Copy TCC files + flens.txt to experiment result dir for reproducibility
-    # Note: for short paired reads, kallisto bus writes flens.txt (FLD histogram)
-    # automatically — it is used by quant-tcc via --fld-file for eff_len correction.
-    for f in count.mtx count.ec.txt transcripts.txt matrix.ec run_info.json flens.txt; do
+    # Copy TCC files to experiment result dir for reproducibility
+    for f in count.mtx count.ec.txt transcripts.txt matrix.ec run_info.json; do
         [ -f "${CACHE_DIR}/${f}" ] && cp "${CACHE_DIR}/${f}" "${SAMPLE_OUT}/${f}"
     done
 
     # -----------------------------------------------------------------
-    # Step 4: kallisto quant-tcc — EM quantification from TCC matrix
+    # Step 4: quantification
+    #   short reads → kallisto quant (auto-estimates FLD from paired-end reads;
+    #                 produces abundance.tsv directly — no mtx_to_tsv step needed)
+    #   long reads  → kallisto quant-tcc --long (TCC matrix path, unchanged)
     # -----------------------------------------------------------------
     echo ""                                                        >> "${LOG}"
-    echo "=== [${SAMPLE_NAME}] Step 4: kallisto quant-tcc ==="    >> "${LOG}"
+    echo "=== [${SAMPLE_NAME}] Step 4: quantification (${SAMPLE_READ_TYPE}) ===" | tee -a "${LOG}"
 
-    # For short reads: pass the FLD histogram (written by kallisto bus) so that
-    # quant-tcc computes proper per-transcript effective lengths instead of uniform.
-    FLD_FILE_FLAG=""
-    if [[ "${SAMPLE_READ_TYPE}" == "short" && -f "${CACHE_DIR}/flens.txt" ]]; then
-        FLD_FILE_FLAG="--fld-file ${CACHE_DIR}/flens.txt"
+    if [[ "${SAMPLE_READ_TYPE}" == "short" ]]; then
+        "${KALLISTO}" quant \
+            -i "${INDEX_FILE}" \
+            -o "${SAMPLE_OUT}/" \
+            -t "${THREADS}" \
+            --plaintext \
+            "${READS_DIR}/${READS_FILE1}" \
+            "${READS_DIR}/${READS_FILE2}" \
+            >> "${LOG}" 2>&1
+        echo "  [OK] kallisto quant done for ${SAMPLE_NAME}"      | tee -a "${LOG}"
+    else
+        "${KALLISTO}" quant-tcc \
+            -t "${THREADS}" \
+            ${QUANT_MODE_FLAGS} \
+            "${CACHE_DIR}/count.mtx" \
+            -i "${INDEX_FILE}" \
+            -e "${CACHE_DIR}/count.ec.txt" \
+            -o "${SAMPLE_OUT}/" \
+            >> "${LOG}" 2>&1
+        echo "  [OK] kallisto quant-tcc done for ${SAMPLE_NAME}"  | tee -a "${LOG}"
+
+        # -----------------------------------------------------------------
+        # Step 5: mtx_to_tsv.py — convert matrix.abundance.tpm.mtx → abundance.tsv
+        # Only needed for long reads (quant-tcc output); kallisto quant already
+        # writes abundance.tsv directly with --plaintext.
+        # -----------------------------------------------------------------
+        echo ""                                                    >> "${LOG}"
+        echo "=== [${SAMPLE_NAME}] mtx → abundance.tsv ==="       >> "${LOG}"
+        python "${JOLI_KALLISTO_DIR}/scripts/mtx_to_tsv.py" \
+            "${SAMPLE_OUT}" \
+            >> "${LOG}" 2>&1
+        echo "  [OK] abundance.tsv written for ${SAMPLE_NAME}"    | tee -a "${LOG}"
     fi
 
-    "${KALLISTO}" quant-tcc \
-        -t "${THREADS}" \
-        ${QUANT_MODE_FLAGS} \
-        ${FLD_FILE_FLAG} \
-        "${CACHE_DIR}/count.mtx" \
-        -i "${INDEX_FILE}" \
-        -e "${CACHE_DIR}/count.ec.txt" \
-        -o "${SAMPLE_OUT}/" \
-        >> "${LOG}" 2>&1
-
-    echo "  [OK] kallisto quant-tcc done for ${SAMPLE_NAME}"     | tee -a "${LOG}"
-
-    # -----------------------------------------------------------------
-    # Step 5: mtx_to_tsv.py — convert matrix.abundance.tpm.mtx → abundance.tsv
-    # Produces a human-readable TSV (transcript_id, tpm) for downstream analysis
-    # -----------------------------------------------------------------
-    echo ""                                                        >> "${LOG}"
-    echo "=== [${SAMPLE_NAME}] mtx → abundance.tsv ==="           >> "${LOG}"
-
-    python "${JOLI_KALLISTO_DIR}/scripts/mtx_to_tsv.py" \
-        "${SAMPLE_OUT}" \
-        >> "${LOG}" 2>&1
-
-    echo "  [OK] abundance.tsv written for ${SAMPLE_NAME}"       | tee -a "${LOG}"
-
-    # Report non-zero transcript counts from abundance.tsv (tpm column 2)
+    # Report non-zero transcript counts from abundance.tsv
+    # kallisto quant  format: target_id | length | eff_length | est_counts | tpm  (col 5 = tpm)
+    # mtx_to_tsv.py   format: transcript_id | tpm                                 (col 2 = tpm)
     if [ -f "${SAMPLE_OUT}/abundance.tsv" ]; then
         TOTAL_TX=$(awk 'NR>1' "${SAMPLE_OUT}/abundance.tsv" | wc -l)
-        NONZERO_TX=$(awk 'NR>1 && $2>0' "${SAMPLE_OUT}/abundance.tsv" | wc -l)
-        echo "  Transcript counts for ${SAMPLE_NAME}:"          | tee -a "${LOG}"
-        echo "    Total transcripts : ${TOTAL_TX}"               | tee -a "${LOG}"
-        echo "    Non-zero (est_counts > 0) : ${NONZERO_TX}"     | tee -a "${LOG}"
+        if [[ "${SAMPLE_READ_TYPE}" == "short" ]]; then
+            NONZERO_TX=$(awk 'NR>1 && $5>0' "${SAMPLE_OUT}/abundance.tsv" | wc -l)
+        else
+            NONZERO_TX=$(awk 'NR>1 && $2>0' "${SAMPLE_OUT}/abundance.tsv" | wc -l)
+        fi
+        echo "  Transcript counts for ${SAMPLE_NAME}:"            | tee -a "${LOG}"
+        echo "    Total transcripts          : ${TOTAL_TX}"        | tee -a "${LOG}"
+        echo "    Non-zero tpm               : ${NONZERO_TX}"      | tee -a "${LOG}"
     fi
 
     echo ""                                                        >> "${LOG}"

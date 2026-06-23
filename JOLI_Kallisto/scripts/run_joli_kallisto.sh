@@ -60,6 +60,9 @@ PYTHON=""            # leave empty to auto-resolve from conda env
 # --- Output base for experiment results ---
 OUTPUT_BASE="/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
 
+# --- Debug flag ---
+STOP_AFTER_BUSTOOLS=0  # 1 = exit after bustools count (cache check only); 0 = full pipeline
+
 # --- JOLI EM settings ---
 MAX_EM_ROUNDS=10000
 MIN_ROUNDS=50
@@ -70,14 +73,18 @@ EM_TYPE="plain"           # "plain" | "MAP" | "VI"
 SAVE_SNAPSHOTS=true    # true  = save theta snapshots every SNAPSHOT_INTERVAL rounds
                         #         (needed for plot_convergence_animation.py)
 SNAPSHOT_INTERVAL=5    # save a snapshot every N rounds (only used when SAVE_SNAPSHOTS=true)
-EM_INCLUDE_SINGLE_TX=false  # true  = single-tx counts included in EM M-step every round
-                           #         (corrected behaviour — E-step uses total abundance)
-                           # false = original kallisto behaviour (single-tx added post-convergence)
+EM_INCLUDE_SINGLE_TX="auto" # "auto"  = match kallisto: short reads → true, long reads → false
+                           # true   = single-tx counts included in EM M-step every round
+                           #          (matches kallisto short-read EMAlgorithm.h: single-tx set
+                           #           in next_alpha at the start of every EM round so E-step
+                           #           uses full abundance including single-tx evidence)
+                           # false  = single-tx excluded from EM loop, added post-convergence
+                           #          (matches kallisto long-read path where single-tx is skipped)
 
 # --- Experiment comment ---
 # Free-text description saved to experiment_description.log for this run.
 # Describe what you are testing, what changed, or what you expect.
-EXPERIMENT_COMMENT="JK SS short-read simulation; with single TX in EM"
+EXPERIMENT_COMMENT="JK SS short-read simulation; auto em_include_single_tx (short→true matches kallisto short-read EM)"
 
 # --- Samples ---
 # Each entry: "sample_name  read_type  reads_dir  file1  [file2]"
@@ -308,8 +315,10 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
                 "${READS_DIR}/${READS_FILE1}" \
                 2>&1 | tee -a "${LOG}"
         else
+            # --paired: treat R1+R2 as proper paired-end (not two independent single-end files)
             "${KALLISTO}" bus \
                 -x bulk \
+                --paired \
                 -i "${INDEX_FILE}" \
                 -o "${CACHE_DIR}" \
                 -t "${THREADS}" \
@@ -367,6 +376,14 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
         fi
     done
 
+    # ---- Early exit for cache inspection (STOP_AFTER_BUSTOOLS=1) ----
+    if [[ "${STOP_AFTER_BUSTOOLS}" == "1" ]]; then
+        echo "[STOP_AFTER_BUSTOOLS] Cache dir contents:" | tee -a "${LOG}"
+        ls -lh "${CACHE_DIR}" | tee -a "${LOG}"
+        echo "[STOP_AFTER_BUSTOOLS] Exiting before Step 3.5 and JOLI EM." | tee -a "${LOG}"
+        continue
+    fi
+
     # ---- Resolve eff_len_mode per sample ----
     if [[ "${EFF_LEN_MODE}" == "auto" ]]; then
         if [[ "${SAMPLE_READ_TYPE}" == "short" ]]; then
@@ -379,16 +396,35 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
         RESOLVED_EFF_LEN_MODE="${EFF_LEN_MODE}"
     fi
 
-    # ---- Step 3.5: generate flens.txt (only when eff_len_mode=kallisto) ----
-    # flens.txt is required by main_joli.py for kallisto eff_len_mode. It is produced
-    # by kallisto quant-tcc; the JK pipeline skips quant-tcc so we run it here once
-    # and cache the result. Skipped if flens.txt already exists in the cache dir.
+    # ---- Resolve em_include_single_tx per sample ----
+    # Kallisto short-read EM sets single-tx counts in next_alpha at the START of
+    # every round (EMAlgorithm.h lines 119-123), so single-tx evidence informs
+    # multi-tx E-step probabilities.  The long-read EM skips single-tx entirely
+    # (adds them post-convergence only).
+    if [[ "${EM_INCLUDE_SINGLE_TX}" == "auto" ]]; then
+        if [[ "${SAMPLE_READ_TYPE}" == "short" ]]; then
+            RESOLVED_EM_INCLUDE_SINGLE_TX="true"
+        else
+            RESOLVED_EM_INCLUDE_SINGLE_TX="false"
+        fi
+        echo "  em_include_single_tx: auto → ${RESOLVED_EM_INCLUDE_SINGLE_TX} (read_type=${SAMPLE_READ_TYPE})" | tee -a "${LOG}"
+    else
+        RESOLVED_EM_INCLUDE_SINGLE_TX="${EM_INCLUDE_SINGLE_TX}"
+    fi
+
+    # ---- Step 3.5: generate joli_efflen.txt (only when eff_len_mode=kallisto) ----
+    # joli_efflen.txt holds per-transcript effective lengths for JOLI EM.
+    # Named separately from kallisto bus's flens.txt (FLD histogram, 1000 values).
+    #   long reads  → quant-tcc --long  (produces per-transcript eff_lens)
+    #   short reads → kallisto quant    (estimates FLD from paired reads;
+    #                                    EM result discarded, only eff_length col kept)
+    # Cached in CACHE_DIR — only runs once per sample.
     if [[ "${RESOLVED_EFF_LEN_MODE}" == "kallisto" ]]; then
-        if [[ -f "${CACHE_DIR}/flens.txt" ]]; then
-            echo "Step 3.5: flens.txt already cached — skipping quant-tcc" | tee -a "${LOG}"
+        if [[ -f "${CACHE_DIR}/joli_efflen.txt" ]]; then
+            echo "Step 3.5: joli_efflen.txt already cached — skipping" | tee -a "${LOG}"
         else
             echo "" | tee -a "${LOG}"
-            echo "Step 3.5: kallisto quant-tcc → generate flens.txt" | tee -a "${LOG}"
+            echo "Step 3.5: generate joli_efflen.txt (per-transcript eff_lens)" | tee -a "${LOG}"
             if [[ "${SAMPLE_READ_TYPE}" == "long" ]]; then
                 "${KALLISTO}" quant-tcc \
                     -t "${THREADS}" \
@@ -398,37 +434,46 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
                     -e "${CACHE_DIR}/count.ec.txt" \
                     -o "${CACHE_DIR}/" \
                     2>&1 | tee -a "${LOG}"
+                # quant-tcc --long writes flens.txt; rename to joli_efflen.txt
+                [[ -f "${CACHE_DIR}/flens.txt" ]] && \
+                    mv "${CACHE_DIR}/flens.txt" "${CACHE_DIR}/joli_efflen.txt"
             else
-                # For short paired-end reads: pass the FLD histogram written by
-                # kallisto bus (flens.txt) so quant-tcc computes proper per-transcript
-                # effective lengths. Mirrors the --fld-file pattern in run_lr_kallisto.sh.
-                FLD_FLAG_35=""
-                if [[ -f "${CACHE_DIR}/flens.txt" ]]; then
-                    FLD_FLAG_35="--fld-file ${CACHE_DIR}/flens.txt"
-                fi
-                "${KALLISTO}" quant-tcc \
-                    -t "${THREADS}" \
-                    ${FLD_FLAG_35} \
-                    "${CACHE_DIR}/count.mtx" \
+                # Short reads: run kallisto quant to auto-estimate the FLD from
+                # the paired-end reads and extract per-transcript effective lengths
+                # from its abundance.tsv. We discard kallisto's EM result — only
+                # the eff_length column is used.
+                QUANT_TMP="${CACHE_DIR}/quant_tmp"
+                mkdir -p "${QUANT_TMP}"
+                "${KALLISTO}" quant \
                     -i "${INDEX_FILE}" \
-                    -e "${CACHE_DIR}/count.ec.txt" \
-                    -o "${CACHE_DIR}/" \
+                    -o "${QUANT_TMP}" \
+                    -t "${THREADS}" \
+                    --plaintext \
+                    "${READS_DIR}/${READS_FILE1}" \
+                    "${READS_DIR}/${READS_FILE2}" \
                     2>&1 | tee -a "${LOG}"
+
+                # Extract eff_length column (col 3, skip header) → space-separated
+                awk 'NR>1 {printf "%s ", $3}' "${QUANT_TMP}/abundance.tsv" \
+                    > "${CACHE_DIR}/joli_efflen.txt"
             fi
-            if [[ -f "${CACHE_DIR}/flens.txt" ]]; then
-                echo "  [OK] flens.txt cached: ${CACHE_DIR}/flens.txt" | tee -a "${LOG}"
+            if [[ -f "${CACHE_DIR}/joli_efflen.txt" ]]; then
+                echo "  [OK] joli_efflen.txt cached: ${CACHE_DIR}/joli_efflen.txt" | tee -a "${LOG}"
             else
-                echo "  WARNING: flens.txt not produced — falling back to eff_len_mode=uniform" | tee -a "${LOG}"
+                echo "  WARNING: joli_efflen.txt not produced — falling back to uniform" | tee -a "${LOG}"
                 RESOLVED_EFF_LEN_MODE="uniform"
             fi
         fi
-        # copy flens.txt to experiment result dir
-        [[ -f "${CACHE_DIR}/flens.txt" ]] && cp "${CACHE_DIR}/flens.txt" "${SAMPLE_RESULT_DIR}/flens.txt"
+        # copy joli_efflen.txt to experiment result dir
+        [[ -f "${CACHE_DIR}/joli_efflen.txt" ]] && \
+            cp "${CACHE_DIR}/joli_efflen.txt" "${SAMPLE_RESULT_DIR}/joli_efflen.txt"
     fi
 
     # ---- Step 4: JOLI EM ----
+    ############ (AT) #############
     echo "Step 4: JOLI EM (main_joli.py)" | tee -a "${LOG}"
-    "${PYTHON}" -m pdb "${SCRIPT_DIR}/../main_joli.py" \
+    # "${PYTHON}" -m pdb "${SCRIPT_DIR}/../main_joli.py" \
+    "${PYTHON}" "${SCRIPT_DIR}/../main_joli.py" \
         --sample_dir    "${CACHE_DIR}" \
         --output_dir    "${SAMPLE_RESULT_DIR}" \
         --eff_len_mode  "${RESOLVED_EFF_LEN_MODE}" \
@@ -437,7 +482,7 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
         --em_type            "${EM_TYPE}" \
         --save_snapshots     "${SAVE_SNAPSHOTS}" \
         --snapshot_interval  "${SNAPSHOT_INTERVAL}" \
-        --em_include_single_tx  "${EM_INCLUDE_SINGLE_TX}" \
+        --em_include_single_tx  "${RESOLVED_EM_INCLUDE_SINGLE_TX}" \
         2>&1 | tee -a "${LOG}"
 
     if [[ $? -ne 0 ]]; then

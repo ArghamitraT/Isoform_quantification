@@ -1,0 +1,14 @@
+{
+	"n_targets": 218255,
+	"n_bootstraps": 0,
+	"n_processed": 0,
+	"n_pseudoaligned": 0,
+	"n_unique": 0,
+	"p_pseudoaligned": 0.0,
+	"p_unique": 0.0,
+	"kallisto_version": "0.51.1",
+	"index_version": 13,
+	"k-mer length": 63,
+	"start_time": "Fri Mar 27 22:26:55 2026",
+	"call": "/gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/kallisto/build/src/kallisto bus -x bulk -i /gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff/SOTA/lr-kallisto/new_index.idx -o ds_52_furtherDownsampled.fastq,/kallisto_output/ -t 32 --long --threshold 0.8 --unmapped ds_52_furtherDownsampled.fastq,/"
+}

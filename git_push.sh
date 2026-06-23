@@ -20,7 +20,7 @@ set -euo pipefail
 # ============================================================
 # CONFIG — file extensions to stage
 # ============================================================
-EXTENSIONS=("py" "sh" "md" "yaml" "yml" "txt")
+EXTENSIONS=("py" "sh" "md" "yaml" "yml" "txt" "json")
 # ============================================================
 
 # ---- Get commit message ----
