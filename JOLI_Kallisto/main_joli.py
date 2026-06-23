@@ -22,14 +22,22 @@ Use this script when:
   - You want to re-run the EM with different settings without re-running bustools
 
 Inputs:
-  --sample_dir   : directory with count.mtx, matrix.ec, transcripts.txt
-  --output_dir   : where to write abundance.tsv (default: same as sample_dir)
-  --eff_len_mode : "uniform" (Phase 1) | "kallisto" (Phase 2+)
-  --max_em_rounds: max EM iterations (default: 10000)
-  --min_rounds   : min EM iterations before convergence check (default: 50)
-  --em_type           : "plain" (Phase 1) | "MAP" (Phase 2) | "VI" (Phase 4)
-  --convergence_mode  : "kallisto" (raw count threshold, matches lr-kallisto exactly) |
-                        "joli"     (normalized theta threshold, faster, for MAP/VI)
+  --sample_dir         : directory with count.mtx, matrix.ec, transcripts.txt
+  --output_dir         : where to write abundance.tsv (default: same as sample_dir)
+  --eff_len_mode       : "uniform" | "kallisto" | "fld"
+                         "fld" (preferred for short reads): computes eff_lens in Python
+                         from flens.txt (FLD histogram from kallisto bus --paired) +
+                         transcript lengths from --transcriptome_fasta.
+                         No kallisto quant call needed.
+  --fld_path           : path to flens.txt (FLD histogram, 1000 values) written by
+                         kallisto bus --paired. Required when --eff_len_mode fld.
+  --transcriptome_fasta: path to transcriptome.fasta for parsing transcript lengths.
+                         Required when --eff_len_mode fld.
+  --max_em_rounds      : max EM iterations (default: 10000)
+  --min_rounds         : min EM iterations before convergence check (default: 50)
+  --em_type            : "plain" (Phase 1) | "MAP" (Phase 2) | "VI" (Phase 4)
+  --convergence_mode   : "kallisto" (raw count threshold, matches lr-kallisto exactly) |
+                         "joli"     (normalized theta threshold, faster, for MAP/VI)
 
 Outputs:
   <output_dir>/abundance.tsv  : per-transcript quantification
@@ -50,7 +58,8 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))
 
 from load_tcc import load_tcc_data, load_flens
-from weights import compute_weights
+from weights import (compute_weights, load_fld_histogram,
+                     load_fasta_transcript_lengths)
 from em_algorithm import JoliEM
 from output_writer import write_abundance
 
@@ -58,9 +67,11 @@ from output_writer import write_abundance
 # ============================================================
 # CONFIG — default values for all CLI arguments; edit here or pass as flags
 # ============================================================
-DEFAULT_SAMPLE_DIR   = "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/kallisto_output/toy"
-DEFAULT_OUTPUT_DIR   = ""           # defaults to sample_dir if empty
-DEFAULT_EFF_LEN_MODE = "uniform"    # "uniform" (Phase 1) | "kallisto" (Phase 2+)
+DEFAULT_SAMPLE_DIR        = "/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled/kallisto_output/toy"
+DEFAULT_OUTPUT_DIR        = ""           # defaults to sample_dir if empty
+DEFAULT_EFF_LEN_MODE      = "uniform"    # "uniform" | "kallisto" | "fld"
+DEFAULT_FLD_PATH          = ""           # path to flens.txt (FLD histogram from kallisto bus --paired)
+DEFAULT_TRANSCRIPTOME_FASTA = ""         # path to transcriptome.fasta (for "fld" mode)
 DEFAULT_MAX_EM_ROUNDS = 10000
 DEFAULT_MIN_ROUNDS    = 50
 DEFAULT_EM_TYPE            = "plain"     # "plain" | "MAP" | "VI"
@@ -99,9 +110,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--eff_len_mode", default=DEFAULT_EFF_LEN_MODE,
-        choices=["uniform", "kallisto"],
-        help="Effective length mode. 'uniform'=all 1.0 (Phase 1); "
-             "'kallisto'=length-based (Phase 2+, requires transcript lengths)."
+        choices=["uniform", "kallisto", "fld"],
+        help="Effective length mode. 'uniform'=all 1.0 (long reads); "
+             "'fld'=Python FLD computation from flens.txt+FASTA (preferred for short reads); "
+             "'kallisto'=from joli_efflen.txt (backward compat)."
+    )
+    parser.add_argument(
+        "--fld_path", default=DEFAULT_FLD_PATH,
+        help="Path to flens.txt (FLD histogram, 1000 values) from kallisto bus --paired. "
+             "Required when --eff_len_mode fld."
+    )
+    parser.add_argument(
+        "--transcriptome_fasta", default=DEFAULT_TRANSCRIPTOME_FASTA,
+        help="Path to transcriptome.fasta for parsing transcript lengths. "
+             "Required when --eff_len_mode fld."
     )
     parser.add_argument(
         "--max_em_rounds", type=int, default=DEFAULT_MAX_EM_ROUNDS,
@@ -171,10 +193,13 @@ def main() -> None:
     print("=" * 60)
     print("JOLI-Kallisto: main_joli.py")
     print("=" * 60)
-    print(f"  sample_dir   : {sample_dir}")
-    print(f"  output_dir   : {output_dir}")
-    print(f"  eff_len_mode : {args.eff_len_mode}")
-    print(f"  em_type      : {args.em_type}")
+    print(f"  sample_dir          : {sample_dir}")
+    print(f"  output_dir          : {output_dir}")
+    print(f"  eff_len_mode        : {args.eff_len_mode}")
+    if args.eff_len_mode == "fld":
+        print(f"  fld_path            : {args.fld_path}")
+        print(f"  transcriptome_fasta : {args.transcriptome_fasta}")
+    print(f"  em_type             : {args.em_type}")
     print(f"  max_em_rounds    : {args.max_em_rounds}")
     print(f"  min_rounds       : {args.min_rounds}")
     print(f"  convergence_mode : {args.convergence_mode}")
@@ -191,9 +216,24 @@ def main() -> None:
     tcc_data = load_tcc_data(sample_dir)
 
     # --- Step 1.2: Compute weights ---
-    # Fix B: "kallisto" mode loads effective lengths from flens.txt (produced by
-    # kallisto quant-tcc), matching kallisto's calc_eff_lens() exactly.
-    if args.eff_len_mode == "kallisto":
+    if args.eff_len_mode == "fld":
+        # Python FLD path: compute eff_lens from FLD histogram + FASTA transcript lengths.
+        # No kallisto quant call needed — flens.txt is produced by kallisto bus --paired.
+        if not args.fld_path:
+            raise ValueError("--eff_len_mode fld requires --fld_path (path to flens.txt).")
+        if not args.transcriptome_fasta:
+            raise ValueError(
+                "--eff_len_mode fld requires --transcriptome_fasta (path to FASTA)."
+            )
+        fld = load_fld_histogram(args.fld_path)
+        tx_lengths = load_fasta_transcript_lengths(
+            args.transcriptome_fasta, tcc_data.transcript_names
+        )
+        weight_data = compute_weights(
+            tcc_data, transcript_lengths=tx_lengths, fld=fld, mode="fld"
+        )
+    elif args.eff_len_mode == "kallisto":
+        # Backward-compat: load pre-computed eff_lens from joli_efflen.txt.
         flens = load_flens(sample_dir, n_transcripts=len(tcc_data.transcript_names))
         weight_data = compute_weights(tcc_data, flens=flens, mode="kallisto")
     else:

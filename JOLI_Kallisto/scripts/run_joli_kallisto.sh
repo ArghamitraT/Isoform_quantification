@@ -66,9 +66,11 @@ STOP_AFTER_BUSTOOLS=0  # 1 = exit after bustools count (cache check only); 0 = f
 # --- JOLI EM settings ---
 MAX_EM_ROUNDS=10000
 MIN_ROUNDS=50
-EFF_LEN_MODE="auto"        # "auto"    = choose per sample: short→"kallisto", long→"uniform"
-                           # "uniform" = all transcripts get eff_len=1.0 (matches kallisto --long)
-                           # "kallisto" = use fragment-length distribution from flens.txt (short reads)
+EFF_LEN_MODE="auto"        # "auto"     = choose per sample: short→"fld", long→"uniform"
+                           # "fld"      = Python FLD computation from flens.txt+FASTA (short reads,
+                           #              preferred — no kallisto quant call needed)
+                           # "uniform"  = all transcripts get eff_len=1.0 (long reads)
+                           # "kallisto" = from joli_efflen.txt (backward compat)
 EM_TYPE="plain"           # "plain" | "MAP" | "VI"
 SAVE_SNAPSHOTS=true    # true  = save theta snapshots every SNAPSHOT_INTERVAL rounds
                         #         (needed for plot_convergence_animation.py)
@@ -84,7 +86,7 @@ EM_INCLUDE_SINGLE_TX="auto" # "auto"  = match kallisto: short reads → true, lo
 # --- Experiment comment ---
 # Free-text description saved to experiment_description.log for this run.
 # Describe what you are testing, what changed, or what you expect.
-EXPERIMENT_COMMENT="JK SS short-read simulation; auto em_include_single_tx (short→true matches kallisto short-read EM)"
+EXPERIMENT_COMMENT="JK SS short-read simulation; fld mode (Python eff_len from FLD+FASTA, no kallisto quant)"
 
 # --- Samples ---
 # Each entry: "sample_name  read_type  reads_dir  file1  [file2]"
@@ -387,7 +389,7 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
     # ---- Resolve eff_len_mode per sample ----
     if [[ "${EFF_LEN_MODE}" == "auto" ]]; then
         if [[ "${SAMPLE_READ_TYPE}" == "short" ]]; then
-            RESOLVED_EFF_LEN_MODE="kallisto"
+            RESOLVED_EFF_LEN_MODE="fld"     # Python FLD path — no kallisto quant needed
         else
             RESOLVED_EFF_LEN_MODE="uniform"
         fi
@@ -412,51 +414,30 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
         RESOLVED_EM_INCLUDE_SINGLE_TX="${EM_INCLUDE_SINGLE_TX}"
     fi
 
-    # ---- Step 3.5: generate joli_efflen.txt (only when eff_len_mode=kallisto) ----
-    # joli_efflen.txt holds per-transcript effective lengths for JOLI EM.
-    # Named separately from kallisto bus's flens.txt (FLD histogram, 1000 values).
-    #   long reads  → quant-tcc --long  (produces per-transcript eff_lens)
-    #   short reads → kallisto quant    (estimates FLD from paired reads;
-    #                                    EM result discarded, only eff_length col kept)
-    # Cached in CACHE_DIR — only runs once per sample.
+    # ---- Step 3.5: generate joli_efflen.txt (long reads only, backward compat) ----
+    # Short reads use mode="fld": eff_lens computed in Python from flens.txt (FLD
+    # histogram written by kallisto bus --paired) + transcript lengths from FASTA.
+    # No kallisto quant call needed.
+    #
+    # Long reads still need quant-tcc --long to produce per-transcript eff_lens.
     if [[ "${RESOLVED_EFF_LEN_MODE}" == "kallisto" ]]; then
         if [[ -f "${CACHE_DIR}/joli_efflen.txt" ]]; then
             echo "Step 3.5: joli_efflen.txt already cached — skipping" | tee -a "${LOG}"
         else
             echo "" | tee -a "${LOG}"
-            echo "Step 3.5: generate joli_efflen.txt (per-transcript eff_lens)" | tee -a "${LOG}"
-            if [[ "${SAMPLE_READ_TYPE}" == "long" ]]; then
-                "${KALLISTO}" quant-tcc \
-                    -t "${THREADS}" \
-                    --long -P "${PLATFORM}" \
-                    "${CACHE_DIR}/count.mtx" \
-                    -i "${INDEX_FILE}" \
-                    -e "${CACHE_DIR}/count.ec.txt" \
-                    -o "${CACHE_DIR}/" \
-                    2>&1 | tee -a "${LOG}"
-                # quant-tcc --long writes flens.txt; rename to joli_efflen.txt
-                [[ -f "${CACHE_DIR}/flens.txt" ]] && \
-                    mv "${CACHE_DIR}/flens.txt" "${CACHE_DIR}/joli_efflen.txt"
-            else
-                # Short reads: run kallisto quant to auto-estimate the FLD from
-                # the paired-end reads and extract per-transcript effective lengths
-                # from its abundance.tsv. We discard kallisto's EM result — only
-                # the eff_length column is used.
-                QUANT_TMP="${CACHE_DIR}/quant_tmp"
-                mkdir -p "${QUANT_TMP}"
-                "${KALLISTO}" quant \
-                    -i "${INDEX_FILE}" \
-                    -o "${QUANT_TMP}" \
-                    -t "${THREADS}" \
-                    --plaintext \
-                    "${READS_DIR}/${READS_FILE1}" \
-                    "${READS_DIR}/${READS_FILE2}" \
-                    2>&1 | tee -a "${LOG}"
-
-                # Extract eff_length column (col 3, skip header) → space-separated
-                awk 'NR>1 {printf "%s ", $3}' "${QUANT_TMP}/abundance.tsv" \
-                    > "${CACHE_DIR}/joli_efflen.txt"
-            fi
+            echo "Step 3.5: generate joli_efflen.txt via quant-tcc --long" | tee -a "${LOG}"
+            "${KALLISTO}" quant-tcc \
+                -t "${THREADS}" \
+                --long -P "${PLATFORM}" \
+                "${CACHE_DIR}/count.mtx" \
+                -i "${INDEX_FILE}" \
+                -e "${CACHE_DIR}/count.ec.txt" \
+                -o "${CACHE_DIR}/" \
+                2>&1 | tee -a "${LOG}"
+            # quant-tcc --long writes flens.txt; rename to joli_efflen.txt to
+            # avoid collision with kallisto bus's flens.txt (FLD histogram)
+            [[ -f "${CACHE_DIR}/flens.txt" ]] && \
+                mv "${CACHE_DIR}/flens.txt" "${CACHE_DIR}/joli_efflen.txt"
             if [[ -f "${CACHE_DIR}/joli_efflen.txt" ]]; then
                 echo "  [OK] joli_efflen.txt cached: ${CACHE_DIR}/joli_efflen.txt" | tee -a "${LOG}"
             else
@@ -464,7 +445,6 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
                 RESOLVED_EFF_LEN_MODE="uniform"
             fi
         fi
-        # copy joli_efflen.txt to experiment result dir
         [[ -f "${CACHE_DIR}/joli_efflen.txt" ]] && \
             cp "${CACHE_DIR}/joli_efflen.txt" "${SAMPLE_RESULT_DIR}/joli_efflen.txt"
     fi
@@ -472,11 +452,21 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
     # ---- Step 4: JOLI EM ----
     ############ (AT) #############
     echo "Step 4: JOLI EM (main_joli.py)" | tee -a "${LOG}"
-    # "${PYTHON}" -m pdb "${SCRIPT_DIR}/../main_joli.py" \
+
+    # Build optional eff_len args: "fld" mode needs --fld_path + --transcriptome_fasta
+    EFF_LEN_EXTRA_ARGS=()
+    if [[ "${RESOLVED_EFF_LEN_MODE}" == "fld" ]]; then
+        EFF_LEN_EXTRA_ARGS=(
+            --fld_path            "${CACHE_DIR}/flens.txt"
+            --transcriptome_fasta "${TRANSCRIPTOME_FASTA}"
+        )
+    fi
+
     "${PYTHON}" "${SCRIPT_DIR}/../main_joli.py" \
         --sample_dir    "${CACHE_DIR}" \
         --output_dir    "${SAMPLE_RESULT_DIR}" \
         --eff_len_mode  "${RESOLVED_EFF_LEN_MODE}" \
+        "${EFF_LEN_EXTRA_ARGS[@]+"${EFF_LEN_EXTRA_ARGS[@]}"}" \
         --max_em_rounds "${MAX_EM_ROUNDS}" \
         --min_rounds    "${MIN_ROUNDS}" \
         --em_type            "${EM_TYPE}" \

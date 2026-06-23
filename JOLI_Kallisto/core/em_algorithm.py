@@ -449,11 +449,19 @@ class JoliEM:
                 # normalises over all reads (single-tx + multi-tx).
                 counts_new = theta_new * total_all_reads
                 counts_old = theta     * total_all_reads
-                changed = int(np.sum(
-                    (counts_new > ALPHA_CHANGE_LIMIT) &
-                    (np.abs(counts_new - counts_old) / np.maximum(counts_new, TOLERANCE)
-                     > ALPHA_CHANGE)
-                ))
+                # Guard: numpy & evaluates both sides before combining, so
+                # the relative-change division runs for ALL elements including
+                # those where counts_new ~ TOLERANCE (~2e-308), causing
+                # overflow to inf.  Use np.where to skip the division where
+                # counts_new <= ALPHA_CHANGE_LIMIT (0.01) — those elements
+                # are never counted as "changed" anyway.
+                monitored = counts_new > ALPHA_CHANGE_LIMIT
+                rel_change = np.where(
+                    monitored,
+                    np.abs(counts_new - counts_old) / np.where(monitored, counts_new, 1.0),
+                    0.0,
+                )
+                changed = int(np.sum(monitored & (rel_change > ALPHA_CHANGE)))
             else:
                 # "joli" mode: compare normalized theta directly.
                 # Monitor all active transcripts (theta > numerical floor).
@@ -614,11 +622,13 @@ class JoliEM:
         if convergence_mode == "kallisto":
             alpha_new = theta_new * effective_total
             alpha_old = theta     * effective_total
-            n_changed = int(np.sum(
-                (alpha_new > ALPHA_CHANGE_LIMIT) &
-                (np.abs(alpha_new - alpha_old) /
-                 np.maximum(alpha_new, TOLERANCE) > ALPHA_CHANGE)
-            ))
+            monitored  = alpha_new > ALPHA_CHANGE_LIMIT
+            rel_change = np.where(
+                monitored,
+                np.abs(alpha_new - alpha_old) / np.where(monitored, alpha_new, 1.0),
+                0.0,
+            )
+            n_changed = int(np.sum(monitored & (rel_change > ALPHA_CHANGE)))
         else:
             n_changed = int(np.sum(
                 (theta_new > 1e-10) &
