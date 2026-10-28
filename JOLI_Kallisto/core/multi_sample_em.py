@@ -51,7 +51,8 @@ import pickle
 import numpy as np
 
 from load_tcc import load_tcc_data, load_flens, TCCData
-from weights import compute_weights, WeightData
+from weights import (compute_weights, WeightData,
+                     load_fld_histogram, load_fasta_transcript_lengths)
 from em_algorithm import JoliEM, EMResult
 from output_writer import write_abundance
 from dirichlet_optimizer import DirichletOptimizer
@@ -69,10 +70,12 @@ class MultiSampleJoliEM:
 
     def __init__(
         self,
-        sample_dirs:      list,
-        sample_names:     list  = None,
-        eff_len_mode:     str   = "uniform",
-        convergence_mode: str   = "joli",
+        sample_dirs:           list,
+        sample_names:          list  = None,
+        eff_len_mode:          str   = "uniform",   # fallback when eff_len_modes not provided
+        eff_len_modes:         list  = None,         # per-sample list overrides eff_len_mode
+        transcriptome_fasta:   str   = None,         # required when any sample uses "fld" mode
+        convergence_mode:      str   = "joli",
         max_em_rounds:    int   = 10000,
         min_em_rounds:    int   = 50,
         max_gd_rounds:    int   = 500,
@@ -84,8 +87,9 @@ class MultiSampleJoliEM:
         loop_mode:            str   = "gd_wrapper",
         save_snapshots:       bool  = False,
         snapshot_interval:    int   = 5,
-        em_include_single_tx: bool  = True,
-        gd_include_single_tx: bool  = False,
+        em_include_single_tx:      bool  = True,    # fallback when em_include_single_tx_list not provided
+        em_include_single_tx_list: list  = None,    # per-sample list overrides em_include_single_tx
+        gd_include_single_tx:      bool  = False,
     ):
         """
         Load TCC data for all samples and initialize the Dirichlet optimizer.
@@ -155,8 +159,11 @@ class MultiSampleJoliEM:
         self.loop_mode            = loop_mode
         self.save_snapshots       = save_snapshots
         self.snapshot_interval    = snapshot_interval
-        self.em_include_single_tx = em_include_single_tx
-        self.gd_include_single_tx = gd_include_single_tx
+        self.em_include_single_tx      = em_include_single_tx
+        self.em_include_single_tx_list = em_include_single_tx_list
+        self.eff_len_modes             = eff_len_modes
+        self.transcriptome_fasta       = transcriptome_fasta
+        self.gd_include_single_tx      = gd_include_single_tx
 
         if loop_mode not in ("gd_wrapper", "em_wrapper"):
             raise ValueError(
@@ -180,22 +187,54 @@ class MultiSampleJoliEM:
         else:
             self.sample_names = [os.path.basename(os.path.normpath(d)) for d in sample_dirs]
 
+        # Pre-validate: if any sample needs "fld" mode, transcriptome_fasta is required
+        _need_fasta = (
+            (eff_len_modes is not None and any(m == "fld" for m in eff_len_modes))
+            or eff_len_mode == "fld"
+        )
+        if _need_fasta and transcriptome_fasta is None:
+            raise ValueError(
+                "transcriptome_fasta is required when any sample uses eff_len_mode='fld'."
+            )
+        _tx_lengths = None   # loaded once from FASTA on the first "fld" sample
+
         for idx, sdir in enumerate(sample_dirs):
             sname = self.sample_names[idx]
-            print(f"\n  [{idx + 1}/{len(sample_dirs)}] {sname}")
+            sample_mode       = eff_len_modes[idx] if eff_len_modes is not None else eff_len_mode
+            sample_em_include = (
+                em_include_single_tx_list[idx]
+                if em_include_single_tx_list is not None
+                else em_include_single_tx
+            )
+            print(f"\n  [{idx + 1}/{len(sample_dirs)}] {sname} "
+                  f"(eff_len_mode={sample_mode}, "
+                  f"em_include_single_tx={sample_em_include})")
 
             tcc_data = load_tcc_data(sdir)
 
-            if eff_len_mode == "kallisto":
+            if sample_mode == "fld":
+                flens_path = os.path.join(sdir, "flens.txt")
+                fld        = load_fld_histogram(flens_path)
+                if _tx_lengths is None:
+                    _tx_lengths = load_fasta_transcript_lengths(
+                        transcriptome_fasta, tcc_data.transcript_names
+                    )
+                weight_data = compute_weights(
+                    tcc_data,
+                    fld=fld,
+                    transcript_lengths=_tx_lengths,
+                    mode="fld",
+                )
+            elif sample_mode == "kallisto":
                 flens       = load_flens(sdir, n_transcripts=len(tcc_data.transcript_names))
                 weight_data = compute_weights(tcc_data, flens=flens, mode="kallisto")
             else:
-                weight_data = compute_weights(tcc_data, mode=eff_len_mode)
+                weight_data = compute_weights(tcc_data, mode=sample_mode)
 
             self.tcc_data_list.append(tcc_data)
             self.weight_data_list.append(weight_data)
             self.em_list.append(JoliEM(tcc_data, weight_data,
-                                       em_include_single_tx=em_include_single_tx))
+                                       em_include_single_tx=sample_em_include))
 
         # Verify all samples share the same number of transcripts
         n_tx_list = [len(td.transcript_names) for td in self.tcc_data_list]
@@ -206,9 +245,10 @@ class MultiSampleJoliEM:
             )
         self.n_transcripts = n_tx_list[0]
 
+        modes_summary = eff_len_modes if eff_len_modes is not None else eff_len_mode
         print(f"\n[MultiSampleJoliEM] All samples loaded. "
               f"n_samples={len(sample_dirs)}, n_transcripts={self.n_transcripts}, "
-              f"em_include_single_tx={em_include_single_tx}, "
+              f"eff_len_modes={modes_summary}, "
               f"gd_include_single_tx={gd_include_single_tx}")
 
         # --- Initialize shared Dirichlet optimizer ---

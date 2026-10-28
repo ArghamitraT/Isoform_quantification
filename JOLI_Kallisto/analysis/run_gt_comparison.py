@@ -453,12 +453,20 @@ def main() -> None:
                         help="One or more experiment folder names.")
     parser.add_argument("--results-base", default=RESULTS_BASE,
                         help=f"Base results directory. Default: {RESULTS_BASE}")
+    parser.add_argument("--gt_override", action="append", default=[],
+                        metavar="SAMPLE:PATH",
+                        help="Override GT path for a sample. Format: sample_name:path. "
+                             "Can be repeated. Takes priority over SAMPLE_GT_MAP.")
     args = parser.parse_args()
 
-    results_base = Path(args.results_base)
+    results_base  = Path(args.results_base)
+    sample_gt_map = dict(SAMPLE_GT_MAP)
+    for override in args.gt_override:
+        name, path = override.split(":", 1)
+        sample_gt_map[name] = path
 
     for exp in args.experiments:
-        run_for_experiment(exp, results_base, SAMPLE_GT_MAP)
+        run_for_experiment(exp, results_base, sample_gt_map)
 
 
 if __name__ == "__main__":

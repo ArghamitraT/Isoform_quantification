@@ -86,24 +86,44 @@ EM_INCLUDE_SINGLE_TX="auto" # "auto"  = match kallisto: short reads → true, lo
 # --- Experiment comment ---
 # Free-text description saved to experiment_description.log for this run.
 # Describe what you are testing, what changed, or what you expect.
-EXPERIMENT_COMMENT="JK SS short-read simulation; fld mode (Python eff_len from FLD+FASTA, no kallisto quant)"
+EXPERIMENT_COMMENT="JK SS real Illumina SR — ill_31 ill_32 ill_51 ill_52"
 
 # --- Samples ---
 # Each entry: "sample_name  read_type  reads_dir  file1  [file2]"
 #   read_type = "long"  → single file, --long --threshold flags, KMER_SIZE_LONG
 #   read_type = "short" → two files (R1 R2), standard paired-end, KMER_SIZE_SHORT
 # Mixed long + short samples in the same array is supported.
+SR_FASTQ_DIR="/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/short"
 SAMPLES=(
-    # Long-read examples:
-    # "toy       long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/downsampled  toy.fastq"
-    # "flnc_01   long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
-    # "flnc_02   long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
+    "ill_31  short  ${SR_FASTQ_DIR}  ill_31_R1.fastq  ill_31_R2.fastq"
+    "ill_32  short  ${SR_FASTQ_DIR}  ill_32_R1.fastq  ill_32_R2.fastq"
+    "ill_51  short  ${SR_FASTQ_DIR}  ill_51_R1.fastq  ill_51_R2.fastq"
+    "ill_52  short  ${SR_FASTQ_DIR}  ill_52_R1.fastq  ill_52_R2.fastq"
+    # Real LR samples (uncomment to switch):
+    # "flnc_31  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long  flnc_31.fastq"
+    # "flnc_32  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long  flnc_32.fastq"
+    # Simulation samples (uncomment to switch back):
+    # "sim_sr_s1  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_short_1.fq  ds_100_num1_aln_01_short_2.fq"
     # "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
-    # "sim2  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
-    # Short-read:
-    # "sr_s1  short  /path/to/short_reads/  sample1_R1.fastq.gz  sample1_R2.fastq.gz"
-    "sim_sr_s1  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_short_1.fq  ds_100_num1_aln_01_short_2.fq"
-    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_short_1.fq  ds_100_num1_aln_21_short_2.fq"
+)
+
+# --- Analysis type ---
+# "sim"  → run run_gt_comparison.py   (simulation, ground truth known)
+# "real" → run run_replicate_comparison.py (real data, compare replicates)
+DATA_TYPE="real"
+
+# --- Simulation: GT map (used when DATA_TYPE="sim") ---
+# Format: "sample_name:path_to_gt_tsv" — one entry per sample.
+GT_MAP=(
+    # "sim_sr_s1:/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/ill_sample1_gt.tsv"
+    # "sim1:/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample1_gt.tsv"
+)
+
+# --- Real data: replicate pairs (used when DATA_TYPE="real") ---
+# Format: "sample1_name:sample2_name" — one pair per entry.
+REPLICATE_PAIRS=(
+    "ill_31:ill_32"   # day 3 replicates
+    "ill_51:ill_52"   # day 5 replicates
 )
 
 # ============================================================
@@ -206,10 +226,14 @@ get_stem() {
 # Returns 0 (true) if cache hit, 1 (false) if cache miss
 # ============================================================
 cache_complete() {
+    # Args: cache_dir [require_flens=false]
+    # Pass require_flens=true for short-read samples: flens.txt must exist for eff_len_mode=fld.
     local cache_dir="$1"
+    local require_flens="${2:-false}"
     [[ -f "${cache_dir}/count.mtx"       ]] && \
     [[ -f "${cache_dir}/matrix.ec"       ]] && \
     [[ -f "${cache_dir}/transcripts.txt" ]] && \
+    { [[ "${require_flens}" != "true" ]] || [[ -f "${cache_dir}/flens.txt" ]]; } && \
     return 0 || return 1
 }
 
@@ -217,6 +241,7 @@ cache_complete() {
 # Main per-sample processing
 # ============================================================
 ERRORS=()
+COLLECTED_SAMPLE_NAMES=()
 
 # ============================================================
 # Step 0 (optional): Build kallisto index
@@ -295,7 +320,11 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
     echo "------------------------------------------------------------" | tee -a "${LOG}"
 
     # ---- CACHE CHECK ----
-    if cache_complete "${CACHE_DIR}"; then
+    # Short reads require flens.txt (FLD histogram from --paired) for eff_len_mode=fld.
+    REQUIRE_FLENS="false"
+    [[ "${SAMPLE_READ_TYPE}" == "short" ]] && REQUIRE_FLENS="true"
+
+    if cache_complete "${CACHE_DIR}" "${REQUIRE_FLENS}"; then
         echo "[CACHE HIT] Skipping kallisto bus + bustools steps." | tee -a "${LOG}"
         echo "  Using existing TCC files in: ${CACHE_DIR}"        | tee -a "${LOG}"
 
@@ -355,8 +384,8 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
             -g "${T2G_FILE}" \
             2>&1 | tee -a "${LOG}"
 
-        # Verify required TCC files exist
-        if ! cache_complete "${CACHE_DIR}"; then
+        # Verify required TCC files exist (including flens.txt for short reads)
+        if ! cache_complete "${CACHE_DIR}" "${REQUIRE_FLENS}"; then
             echo "ERROR: bustools count did not produce required files in ${CACHE_DIR}" \
                 | tee -a "${LOG}"
             ERRORS+=("${SAMPLE_NAME}")
@@ -482,7 +511,55 @@ for SAMPLE_ENTRY in "${SAMPLES[@]}"; do
     fi
 
     echo "Sample ${SAMPLE_NAME} complete." | tee -a "${LOG}"
+    COLLECTED_SAMPLE_NAMES+=("${SAMPLE_NAME}")
 done
+
+# ============================================================
+# STEP 5: Analysis — GT comparison (sim) or replicate comparison (real)
+# ============================================================
+if [[ ${#COLLECTED_SAMPLE_NAMES[@]} -gt 0 ]]; then
+    echo "" | tee -a "${LOG}"
+    echo "=== Step 5: Analysis (DATA_TYPE=${DATA_TYPE}) ===" | tee -a "${LOG}"
+
+    if [[ "${DATA_TYPE}" == "sim" ]]; then
+        GT_OVERRIDE_ARGS=()
+        for entry in "${GT_MAP[@]}"; do
+            GT_OVERRIDE_ARGS+=("--gt_override" "${entry}")
+        done
+        "${PYTHON}" "${SCRIPT_DIR}/../analysis/run_gt_comparison.py" \
+            "${TIMESTAMP}" \
+            "${GT_OVERRIDE_ARGS[@]+"${GT_OVERRIDE_ARGS[@]}"}" \
+            2>&1 | tee -a "${LOG}"
+        echo "[OK] GT comparison done" | tee -a "${LOG}"
+
+    elif [[ "${DATA_TYPE}" == "real" ]]; then
+        for pair in "${REPLICATE_PAIRS[@]}"; do
+            s1="${pair%%:*}"
+            s2="${pair##*:}"
+            ab1="${RUN_DIR}/${s1}/abundance.tsv"
+            ab2="${RUN_DIR}/${s2}/abundance.tsv"
+            if [[ ! -f "${ab1}" || ! -f "${ab2}" ]]; then
+                echo "" | tee -a "${LOG}"
+                echo "  [SKIP] Analysis NOT done for ${s1} vs ${s2} — abundance.tsv missing for one or both samples." | tee -a "${LOG}"
+                echo "  Run analysis later with:" | tee -a "${LOG}"
+                echo "    cd ${SCRIPT_DIR}/.." | tee -a "${LOG}"
+                echo "    conda activate NanoCount_5" | tee -a "${LOG}"
+                echo "    python analysis/run_replicate_comparison.py \\" | tee -a "${LOG}"
+                echo "        ${ab1} \\" | tee -a "${LOG}"
+                echo "        ${ab2} \\" | tee -a "${LOG}"
+                echo "        --names ${s1} ${s2}" | tee -a "${LOG}"
+                continue
+            fi
+            echo "  Replicate comparison: ${s1} vs ${s2}" | tee -a "${LOG}"
+            "${PYTHON}" "${SCRIPT_DIR}/../analysis/run_replicate_comparison.py" \
+                "${ab1}" \
+                "${ab2}" \
+                --names "${s1}" "${s2}" \
+                2>&1 | tee -a "${LOG}"
+        done
+        echo "[OK] Replicate comparison done" | tee -a "${LOG}"
+    fi
+fi
 
 # ---- Save total runtime ----
 RUN_END=$(date +%s)

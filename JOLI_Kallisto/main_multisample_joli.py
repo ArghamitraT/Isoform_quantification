@@ -23,18 +23,22 @@ Sample input — two options (set ONE in CONFIG, leave the other blank/empty):
   Option B — SAMPLES_FOLDER: parent folder; code auto-discovers all subdirs.
 
 CLI args (all optional — override CONFIG when provided):
-  --sample_dirs DIR [DIR ...]  Explicit list of bustools output directories.
-  --results_base PATH          Base directory for timestamped output folder.
-  --eff_len_mode STR           "uniform" | "kallisto"
-  --convergence_mode STR       "joli" | "kallisto"
-  --max_em_rounds INT          Max inner EM rounds per sample per GD round.
-  --min_em_rounds INT          Min inner EM rounds before convergence check.
-  --max_gd_rounds INT          Max outer GD iterations.
-  --gd_lr FLOAT                Adam learning rate for shared alpha.
-  --alpha_initial FLOAT        Initial Dirichlet concentration.
-  --gd_convergence_tol FLOAT   Stop outer loop when |loss_change| < tol.
-  --gd_steps_per_round INT     Adam steps per outer GD round.
-  --min_read_support FLOAT     Fix A: min n[t] to apply Dirichlet prior (0.0 = off).
+  --sample_dirs DIR [DIR ...]          Explicit list of bustools output directories.
+  --results_base PATH                  Base directory for timestamped output folder.
+  --eff_len_mode STR                   "uniform" | "kallisto" | "fld" (fallback for all samples).
+  --eff_len_modes MODE [MODE ...]      Per-sample mode list (overrides --eff_len_mode).
+  --transcriptome_fasta PATH           FASTA file required when any sample uses "fld" mode.
+  --em_include_single_tx_list T/F ...  Per-sample list of "true"/"false" (overrides --em_include_single_tx).
+  --convergence_mode STR               "joli" | "kallisto"
+  --max_em_rounds INT                  Max inner EM rounds per sample per GD round.
+  --min_em_rounds INT                  Min inner EM rounds before convergence check.
+  --max_gd_rounds INT                  Max outer GD iterations.
+  --gd_lr FLOAT                        Adam learning rate for shared alpha.
+  --alpha_initial FLOAT                Initial Dirichlet concentration.
+  --gd_convergence_tol FLOAT           Stop outer loop when |loss_change| < tol.
+  --gd_steps_per_round INT             Adam steps per outer GD round.
+  --min_read_support FLOAT             Fix A: min n[t] to apply Dirichlet prior (0.0 = off).
+  --run_dir_output PATH                Write the created run_dir path to this file (for bash).
 
 Inputs:
   SAMPLE_DIRS or SAMPLES_FOLDER (CONFIG) or --sample_dirs (CLI)
@@ -90,7 +94,12 @@ RESULTS_BASE        = "/gpfs/commons/home/atalukder/RNA_Splicing/files/results"
 READ_TYPE           = "long"            # informational only: "long" | "short" | "mixed"
 #                                       # the actual per-sample read type is handled by the
 #                                       # bash pipeline (run_multisample_joli.sh)
-EFF_LEN_MODE        = "uniform"         # "uniform" | "kallisto"
+EFF_LEN_MODE        = "uniform"         # fallback for all samples: "uniform" | "fld" | "kallisto"
+EFF_LEN_MODES       = []               # per-sample list overrides EFF_LEN_MODE;
+#                                       #   e.g. ["uniform", "fld", "fld"] for LR + 2×SR samples
+#                                       #   leave [] to use EFF_LEN_MODE for all samples
+TRANSCRIPTOME_FASTA = ""               # path to transcriptome.fasta — required when any sample
+#                                       #   uses eff_len_mode="fld" (short reads)
 CONVERGENCE_MODE    = "joli"            # "joli" (recommended for MAP) | "kallisto"
 MAX_EM_ROUNDS       = 10000             # max inner EM rounds per sample per GD round
 MIN_EM_ROUNDS       = 1                # min inner EM rounds before convergence check
@@ -110,6 +119,9 @@ EM_INCLUDE_SINGLE_TX = True           # True  = single-tx counts included in EM 
 #                                      #   (corrected behaviour — E-step uses total abundance)
 #                                      # False = original kallisto behaviour
 #                                      #   (single-tx added post-convergence only)
+EM_INCLUDE_SINGLE_TX_LIST = []        # per-sample list overrides EM_INCLUDE_SINGLE_TX;
+#                                      #   e.g. [False, True, True] for LR + 2×SR samples
+#                                      #   leave [] to use EM_INCLUDE_SINGLE_TX for all samples
 GD_INCLUDE_SINGLE_TX = False          # False (default) = single-tx excluded from theta passed to GD
 #                                      #   GD gradient driven only by multi-tx (ambiguous) ECs —
 #                                      #   where cross-sample sharing resolves ambiguity
@@ -160,8 +172,37 @@ def parse_args() -> argparse.Namespace:
         help="Base directory for timestamped output folder (overrides CONFIG RESULTS_BASE)."
     )
     parser.add_argument(
-        "--eff_len_mode", default=None, choices=["uniform", "kallisto"],
-        help="Effective length mode."
+        "--eff_len_mode", default=None, choices=["uniform", "kallisto", "fld"],
+        help="Effective length mode (fallback applied to all samples)."
+    )
+    parser.add_argument(
+        "--eff_len_modes", nargs="+", default=None,
+        help="Per-sample effective length modes (e.g. uniform fld fld). "
+             "Overrides --eff_len_mode when provided. Must match number of samples."
+    )
+    parser.add_argument(
+        "--transcriptome_fasta", default=None,
+        help="Path to transcriptome FASTA file. Required when any sample uses mode='fld'."
+    )
+    parser.add_argument(
+        "--em_include_single_tx_list", nargs="+", default=None,
+        metavar="true|false",
+        help="Per-sample em_include_single_tx flags (e.g. false true true). "
+             "Overrides --em_include_single_tx. Must match number of samples."
+    )
+    parser.add_argument(
+        "--run_dir_output", default=None,
+        help="Write the created run_dir path to this file. Used by bash pipeline to "
+             "capture the experiment folder name without parsing stdout."
+    )
+    parser.add_argument(
+        "--run_dir", default=None,
+        help="Exact output directory to use (overrides --results_base and the internal "
+             "timestamp generation). Lets a batch submitter (e.g. submit_JKMS_slurm.py) "
+             "decide each run's exprmnt_* path up front, so concurrent jobs launched by "
+             "the same batch never collide on an independently-generated timestamp. "
+             "When omitted (manual/standalone runs), the timestamp is generated internally "
+             "as before."
     )
     parser.add_argument(
         "--convergence_mode", default=None, choices=["joli", "kallisto"],
@@ -430,6 +471,23 @@ def main() -> None:
 
     # Effective values (CLI wins over CONFIG when CLI arg is not None)
     eff_len_mode       = args.eff_len_mode       or EFF_LEN_MODE
+    # Per-sample modes: CLI list > CONFIG list > None (falls back to eff_len_mode for all)
+    eff_len_modes      = (
+        args.eff_len_modes if args.eff_len_modes is not None
+        else (EFF_LEN_MODES if EFF_LEN_MODES else None)
+    )
+    transcriptome_fasta = (
+        args.transcriptome_fasta if args.transcriptome_fasta is not None
+        else (TRANSCRIPTOME_FASTA if TRANSCRIPTOME_FASTA else None)
+    )
+    # Per-sample em_include_single_tx list: strings "true"/"false" → booleans
+    _em_list_raw = (
+        args.em_include_single_tx_list if args.em_include_single_tx_list is not None
+        else (EM_INCLUDE_SINGLE_TX_LIST if EM_INCLUDE_SINGLE_TX_LIST else None)
+    )
+    em_include_single_tx_list = (
+        [v.lower() == "true" for v in _em_list_raw] if _em_list_raw else None
+    )
     convergence_mode   = args.convergence_mode   or CONVERGENCE_MODE
     max_em_rounds      = args.max_em_rounds      if args.max_em_rounds      is not None else MAX_EM_ROUNDS
     min_em_rounds      = args.min_em_rounds      if args.min_em_rounds      is not None else MIN_EM_ROUNDS
@@ -460,9 +518,16 @@ def main() -> None:
         sys.exit(1)
 
     # --- Create run directory and start logging ---
-    timestamp = datetime.now().strftime("%Y_%m_%d__%H_%M_%S")
-    run_dir   = os.path.join(results_base, f"exprmnt_{timestamp}")
-    os.makedirs(run_dir, exist_ok=True)
+    # --run_dir (set by a batch submitter) takes priority so concurrent jobs
+    # launched together never race on independently-generated timestamps.
+    # Manual/standalone runs (no --run_dir) keep the original behaviour.
+    if args.run_dir:
+        run_dir = args.run_dir
+        os.makedirs(run_dir, exist_ok=True)
+    else:
+        timestamp = datetime.now().strftime("%Y_%m_%d__%H_%M_%S")
+        run_dir   = os.path.join(results_base, f"exprmnt_{timestamp}")
+        os.makedirs(run_dir, exist_ok=True)
     log_fh  = setup_logging(run_dir)
 
     print("=" * 60)
@@ -470,7 +535,9 @@ def main() -> None:
     print("=" * 60)
     print(f"  run_dir          : {run_dir}")
     print(f"  n_samples        : {len(sample_dirs)}")
-    print(f"  eff_len_mode     : {eff_len_mode}")
+    print(f"  eff_len_mode     : {eff_len_mode}  (fallback)")
+    print(f"  eff_len_modes    : {eff_len_modes or '(all use fallback)'}")
+    print(f"  transcriptome_fasta : {transcriptome_fasta or '(not set)'}")
     print(f"  convergence_mode : {convergence_mode}")
     print(f"  max_em_rounds    : {max_em_rounds}")
     print(f"  min_em_rounds    : {min_em_rounds}")
@@ -482,13 +549,20 @@ def main() -> None:
     print(f"  min_read_support    : {min_read_support}  (Fix A: 0.0 = disabled)")
     print(f"  loop_mode           : {loop_mode}")
     print(f"  save_snapshots         : {save_snapshots}  (interval={snapshot_interval})")
-    print(f"  em_include_single_tx   : {em_include_single_tx}")
-    print(f"  gd_include_single_tx   : {gd_include_single_tx}")
+    print(f"  em_include_single_tx      : {em_include_single_tx}  (fallback)")
+    print(f"  em_include_single_tx_list : {em_include_single_tx_list or '(all use fallback)'}")
+    print(f"  gd_include_single_tx      : {gd_include_single_tx}")
     if experiment_comment:
         print(f"  comment             : {experiment_comment}")
     print("=" * 60)
 
     # Save experiment description and code snapshot before running
+    # Write run_dir path to file if requested (used by bash pipeline to capture it)
+    if args.run_dir_output:
+        with open(args.run_dir_output, "w") as _f:
+            _f.write(run_dir + "\n")
+        print(f"[main_multisample] run_dir written to: {args.run_dir_output}")
+
     save_experiment_description(
         run_dir, sample_dirs,
         eff_len_mode        = eff_len_mode,
@@ -510,23 +584,26 @@ def main() -> None:
 
     # --- Run multi-sample MAP EM ---
     ms = MultiSampleJoliEM(
-        sample_dirs        = sample_dirs,
-        sample_names       = args.sample_names,   # None → derived from dir basename
-        eff_len_mode       = eff_len_mode,
-        convergence_mode   = convergence_mode,
-        max_em_rounds      = max_em_rounds,
-        min_em_rounds      = min_em_rounds,
-        max_gd_rounds      = max_gd_rounds,
-        gd_lr              = gd_lr,
-        alpha_initial      = alpha_initial,
-        gd_convergence_tol = gd_convergence_tol,
-        gd_steps_per_round = gd_steps_per_round,
-        min_read_support   = min_read_support,
-        loop_mode            = loop_mode,
-        save_snapshots       = save_snapshots,
-        snapshot_interval    = snapshot_interval,
-        em_include_single_tx = em_include_single_tx,
-        gd_include_single_tx = gd_include_single_tx,
+        sample_dirs              = sample_dirs,
+        sample_names             = args.sample_names,   # None → derived from dir basename
+        eff_len_mode             = eff_len_mode,
+        eff_len_modes            = eff_len_modes,
+        transcriptome_fasta      = transcriptome_fasta,
+        convergence_mode         = convergence_mode,
+        max_em_rounds            = max_em_rounds,
+        min_em_rounds            = min_em_rounds,
+        max_gd_rounds            = max_gd_rounds,
+        gd_lr                    = gd_lr,
+        alpha_initial            = alpha_initial,
+        gd_convergence_tol       = gd_convergence_tol,
+        gd_steps_per_round       = gd_steps_per_round,
+        min_read_support         = min_read_support,
+        loop_mode                = loop_mode,
+        save_snapshots           = save_snapshots,
+        snapshot_interval        = snapshot_interval,
+        em_include_single_tx     = em_include_single_tx,
+        em_include_single_tx_list= em_include_single_tx_list,
+        gd_include_single_tx     = gd_include_single_tx,
     )
 
     results = ms.run()

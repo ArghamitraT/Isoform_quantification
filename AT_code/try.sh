@@ -14,14 +14,16 @@
 # cp -r /gpfs/commons/home/spark/knowles_lab/Argha /gpfs/commons/home/atalukder/RNA_Splicing/data/knowles_lab
 # cp -r /gpfs/commons/home/sraghavendra/PacBio/ /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq
 
-cp -r /gpfs/commons/home/sraghavendra/Simulation /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/simulations_copiedFromShree
+# cp -r /gpfs/commons/home/sraghavendra/Simulation /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/simulations_copiedFromShree
 
 
 
-# set -e
-# cd $HOME
-# source ~/.bashrc
-# conda activate NanoCount_5
-# # python /gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/try.py
-# # cp -r /gpfs/commons/home/sraghavendra/SOTA /gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff
+set -e
+cd $HOME
+source ~/.bashrc
+conda activate NanoCount_5_shree 
+python3 -u /gpfs/commons/home/atalukder/RNA_Splicing/code/encode_2026_downloader.py download --workers "${SLURM_CPUS_PER_TASK:-8}"
+python3 -u /gpfs/commons/home/atalukder/RNA_Splicing/code/encode_2026_downloader.py verify
+# python /gpfs/commons/home/atalukder/RNA_Splicing/code/AT_code/try.py
+# cp -r /gpfs/commons/home/sraghavendra/SOTA /gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff
 # rsync -ah --progress /gpfs/commons/home/sraghavendra/PacBio /gpfs/commons/home/atalukder/RNA_Splicing/data/Shree_stuff

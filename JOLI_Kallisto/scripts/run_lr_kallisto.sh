@@ -96,29 +96,44 @@ OUTPUT_BASE=/gpfs/commons/home/atalukder/RNA_Splicing/files/results
 # --- Experiment comment ---
 # Free-text description saved to experiment_description.log for this run.
 # Describe what you are testing, what changed, or what you expect.
-EXPERIMENT_COMMENT="Trying to run lr kallisto on real data long read 5"
+EXPERIMENT_COMMENT="LK real Illumina SR — ill_31 ill_32 ill_51 ill_52"
 
 # --- Sample array ---
 # Each entry: "sample_name  read_type  reads_dir  file1  [file2]"
 #   read_type = "long"  → single file, --long --threshold flags, KMER_SIZE_LONG
 #   read_type = "short" → two files (R1 R2), standard paired-end, KMER_SIZE_SHORT
 # Mixed long + short samples in the same array is supported.
+SR_FASTQ_DIR="/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/short"
 SAMPLES=(
-    # Long-read examples:
-    # "sim2   long   /gpfs/commons/home/sraghavendra/Simulation/lrgasp-simulation/sim_result_2/human_simulated_job_correct/  PacBio.simulated.fasta"
-    # "flnc_01  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_01.fastq"
-    # "flnc_02  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_02.fastq"
-    # "flnc_03  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_03.fastq"
-    # "flnc_31  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_31.fastq"
-    # "flnc_32  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_32.fastq"
-    # "flnc_51  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_51.fastq"
-    # "flnc_52  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long/  flnc_52.fastq"
+    "ill_31  short  ${SR_FASTQ_DIR}  ill_31_R1.fastq  ill_31_R2.fastq"
+    "ill_32  short  ${SR_FASTQ_DIR}  ill_32_R1.fastq  ill_32_R2.fastq"
+    "ill_51  short  ${SR_FASTQ_DIR}  ill_51_R1.fastq  ill_51_R2.fastq"
+    "ill_52  short  ${SR_FASTQ_DIR}  ill_52_R1.fastq  ill_52_R2.fastq"
+    # Real LR samples (uncomment to switch):
+    # "flnc_31  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long  flnc_31.fastq"
+    # "flnc_32  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/PacBio_data_fastq/PacBio/reads/long  flnc_32.fastq"
+    # Simulation samples (uncomment to switch back):
+    # "sim_sr_s1  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_short_1.fq  ds_100_num1_aln_01_short_2.fq"
     # "sim1  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_long.fasta"
-    # "sim2  long  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_long.fasta"
-    # Short-read examples:
-    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  sample2_R1.fastq.gz  sample2_R2.fastq.gz"
-    "sim_sr_s1  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_01_short_1.fq  ds_100_num1_aln_01_short_2.fq"
-    # "sim_sr_s2  short  /gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/  ds_100_num1_aln_21_short_1.fq  ds_100_num1_aln_21_short_2.fq"
+)
+
+# --- Analysis type ---
+# "sim"  → run run_gt_comparison.py   (simulation, ground truth known)
+# "real" → run run_replicate_comparison.py (real data, compare replicates)
+DATA_TYPE="real"
+
+# --- Simulation: GT map (used when DATA_TYPE="sim") ---
+# Format: "sample_name:path_to_gt_tsv" — one entry per sample.
+GT_MAP=(
+    # "sim_sr_s1:/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/ill_sample1_gt.tsv"
+    # "sim1:/gpfs/commons/groups/knowles_lab/Argha/RNA_Splicing/data/sim_real_data/ground_truths/PB_sample1_gt.tsv"
+)
+
+# --- Real data: replicate pairs (used when DATA_TYPE="real") ---
+# Format: "sample1_name:sample2_name" — one pair per entry.
+REPLICATE_PAIRS=(
+    "ill_31:ill_32"   # day 3 replicates
+    "ill_51:ill_52"   # day 5 replicates
 )
 
 # =============================================================================
@@ -260,6 +275,8 @@ cache_complete() {
 # =============================================================================
 # PIPELINE LOOP — one iteration per sample
 # =============================================================================
+
+COLLECTED_SAMPLE_NAMES=()
 
 for entry in "${SAMPLES[@]}"; do
     # Parse fields: sample_name  read_type  reads_dir  file1  [file2]
@@ -431,8 +448,56 @@ for entry in "${SAMPLES[@]}"; do
 
     echo ""                                                        >> "${LOG}"
     echo "  Output written to: ${SAMPLE_OUT}/"                   | tee -a "${LOG}"
+    COLLECTED_SAMPLE_NAMES+=("${SAMPLE_NAME}")
 
 done  # end sample loop
+
+# =============================================================================
+# STEP 5: Analysis — GT comparison (sim) or replicate comparison (real)
+# =============================================================================
+if [[ ${#COLLECTED_SAMPLE_NAMES[@]} -gt 0 ]]; then
+    echo "" | tee -a "${LOG}"
+    echo "=== Step 5: Analysis (DATA_TYPE=${DATA_TYPE}) ===" | tee -a "${LOG}"
+
+    if [[ "${DATA_TYPE}" == "sim" ]]; then
+        GT_OVERRIDE_ARGS=()
+        for entry in "${GT_MAP[@]}"; do
+            GT_OVERRIDE_ARGS+=("--gt_override" "${entry}")
+        done
+        python "${JOLI_KALLISTO_DIR}/analysis/run_gt_comparison.py" \
+            "exprmnt_${TIMESTAMP}" \
+            "${GT_OVERRIDE_ARGS[@]+"${GT_OVERRIDE_ARGS[@]}"}" \
+            2>&1 | tee -a "${LOG}"
+        echo "[OK] GT comparison done" | tee -a "${LOG}"
+
+    elif [[ "${DATA_TYPE}" == "real" ]]; then
+        for pair in "${REPLICATE_PAIRS[@]}"; do
+            s1="${pair%%:*}"
+            s2="${pair##*:}"
+            ab1="${RUN_DIR}/${s1}/abundance.tsv"
+            ab2="${RUN_DIR}/${s2}/abundance.tsv"
+            if [[ ! -f "${ab1}" || ! -f "${ab2}" ]]; then
+                echo "" | tee -a "${LOG}"
+                echo "  [SKIP] Analysis NOT done for ${s1} vs ${s2} — abundance.tsv missing for one or both samples." | tee -a "${LOG}"
+                echo "  Run analysis later with:" | tee -a "${LOG}"
+                echo "    cd ${JOLI_KALLISTO_DIR}" | tee -a "${LOG}"
+                echo "    conda activate NanoCount_5" | tee -a "${LOG}"
+                echo "    python analysis/run_replicate_comparison.py \\" | tee -a "${LOG}"
+                echo "        ${ab1} \\" | tee -a "${LOG}"
+                echo "        ${ab2} \\" | tee -a "${LOG}"
+                echo "        --names ${s1} ${s2}" | tee -a "${LOG}"
+                continue
+            fi
+            echo "  Replicate comparison: ${s1} vs ${s2}" | tee -a "${LOG}"
+            python "${JOLI_KALLISTO_DIR}/analysis/run_replicate_comparison.py" \
+                "${ab1}" \
+                "${ab2}" \
+                --names "${s1}" "${s2}" \
+                2>&1 | tee -a "${LOG}"
+        done
+        echo "[OK] Replicate comparison done" | tee -a "${LOG}"
+    fi
+fi
 
 # =============================================================================
 # TEARDOWN — runtime, code snapshot
